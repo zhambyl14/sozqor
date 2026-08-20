@@ -1,0 +1,52 @@
+name: sozqor
+description: SozQor — ағылшын сөздерін ойнап үйрен, баттлға түс, жең.
+publish_to: 'none'
+version: 4.0.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State
+  flutter_riverpod: ^2.6.1
+
+  # Backend — data, auth, realtime, edge functions
+  supabase_flutter: ^2.8.4
+
+  # Firebase — push notifications only
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.5
+  flutter_local_notifications: ^18.0.1
+
+  # Google sign-in (feeds Supabase signInWithIdToken)
+  google_sign_in: ^6.2.2
+
+  # Speech for listening games
+  flutter_tts: ^4.2.0
+
+  # Utils
+  shared_preferences: ^2.3.3
+  timezone: ^0.10.0
+  google_fonts: ^6.2.1
+  intl: ^0.20.2
+  share_plus: ^10.1.2
+  url_launcher: ^6.3.1
+
+  cupertino_icons: ^1.0.8
+  phosphoricons_flutter: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/icon.png
+    - assets/data/starter_dictionary.json

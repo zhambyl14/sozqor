@@ -1,0 +1,46 @@
+# Netlify cache rules. Copied verbatim into build/web by `flutter build web`.
+#
+# The whole point is that a deploy is visible immediately. Flutter's own
+# filenames are not content-hashed, so anything cached by the browser stays
+# cached under the same URL — which is exactly how a shipped fix ends up
+# invisible on a phone that has opened the app before.
+
+# The entry point and the loader decide which build runs. If either is cached,
+# nothing else matters — the device keeps booting the old app.
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/flutter_bootstrap.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/flutter.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/version.json
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# Service workers must always be re-fetched, or an old one keeps control.
+/flutter_service_worker.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/firebase-messaging-sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/manifest.json
+  Cache-Control: no-cache
+
+# The Dart bundle changes on every build under the same name, so it has to be
+# revalidated too — but an ETag match still answers 304, so this costs a round
+# trip, not a re-download.
+/main.dart.js
+  Cache-Control: no-cache, must-revalidate
+
+/assets/*
+  Cache-Control: no-cache, must-revalidate
+
+# CanvasKit ships versioned by Flutter and is safe to keep.
+/canvaskit/*
+  Cache-Control: public, max-age=2592000, immutable
+
+/icons/*
+  Cache-Control: public, max-age=604800

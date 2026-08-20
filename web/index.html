@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description"
+        content="SozQor — ағылшын сөздерін ойнап үйрен, баттлға түс, жең.">
+  <meta name="theme-color" content="#7C5CFF">
+
+  <!-- Installed to the home screen this runs full screen, which is also the
+       only way iOS delivers web push. -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SozQor">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>SozQor</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Shown until Flutter paints its first frame, so a cold load on a phone
+       is a branded splash instead of a white page. */
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #FAFAFC;
+      overscroll-behavior: none;
+    }
+    @media (prefers-color-scheme: dark) {
+      html, body { background: #0E0E14; }
+    }
+    #sq-boot {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 18px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: opacity .25s ease;
+    }
+    #sq-boot .mark {
+      width: 64px; height: 64px; border-radius: 20px;
+      background: #7C5CFF;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 30px; font-weight: 800;
+    }
+    #sq-boot .ring {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2.5px solid rgba(124, 92, 255, .25);
+      border-top-color: #7C5CFF;
+      animation: sq-spin .8s linear infinite;
+    }
+    @keyframes sq-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="sq-boot">
+    <div class="mark">S</div>
+    <div class="ring"></div>
+  </div>
+
+  <script>
+    // Flutter removes the boot splash once the first frame is on screen.
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('sq-boot');
+      if (!el) return;
+      el.style.opacity = '0';
+      setTimeout(function () { el.remove(); }, 260);
+    });
+
+    // Evict Flutter's app-shell service worker.
+    //
+    // Builds now use --pwa-strategy=none, but a phone that installed an
+    // earlier build still has the old worker resident, and it keeps serving
+    // its cached copy of the app forever — a deploy lands on Netlify and the
+    // device never sees it. Nothing here can reach those caches from the
+    // server side, so the page evicts the worker itself on first load and
+    // reloads once into the real, current build.
+    //
+    // firebase-messaging-sw.js is a different worker and is deliberately left
+    // alone: web push is registered through it.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        var stale = regs.filter(function (r) {
+          var url = (r.active && r.active.scriptURL) || '';
+          return url.indexOf('flutter_service_worker') !== -1;
+        });
+        if (!stale.length) return;
+        Promise.all(stale.map(function (r) { return r.unregister(); }))
+          .then(function () {
+            return caches.keys().then(function (keys) {
+              return Promise.all(keys
+                .filter(function (k) { return k.indexOf('flutter') !== -1; })
+                .map(function (k) { return caches.delete(k); }));
+            });
+          })
+          .then(function () { window.location.reload(); });
+      }).catch(function () {/* a browser that refuses is simply left alone */});
+    }
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

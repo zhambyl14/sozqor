@@ -1,0 +1,37 @@
+{
+    "name": "SozQor — ағылшын сөздері",
+    "short_name": "SozQor",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#FAFAFC",
+    "theme_color": "#7C5CFF",
+    "description": "Ағылшын сөздерін ойнап үйрен, баттлға түс, жең.",
+    "orientation": "portrait-primary",
+    "lang": "kk",
+    "prefer_related_applications": false,
+    "gcm_sender_id": "103953800507",
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}

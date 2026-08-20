@@ -1,0 +1,20 @@
+# Analyzer configuration for SozQor.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # Pre-3.0 Firebase codebase, kept only as a reference snapshot.
+    - lib_old/**
+    - build/**
+  errors:
+    # Kazakh copy is written inline; const-correctness is enforced by the
+    # analyzer everywhere it matters.
+    avoid_print: warning
+
+linter:
+  rules:
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - avoid_unnecessary_containers
+    - sized_box_for_whitespace
+    - use_super_parameters

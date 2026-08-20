@@ -37,16 +37,25 @@ const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
+// OpenRouter retired the `:free` tier on every model this list used to name —
+// each one now 404s with "unavailable for free". These are priced at zero by
+// /api/v1/models today. They are tried AFTER Gemini because a free model that
+// answers confidently but wrongly is worse than none here: a translate result
+// is written into the shared dictionary, so one bad answer becomes everyone's
+// answer. Probed against "жалаңаш" these returned "newcomer", "silly" and
+// "yellowish" where Gemini returned "naked".
 const FREE_MODELS = [
-  "openai/gpt-oss-120b:free",
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "qwen/qwen3-next-80b-a3b-instruct:free",
-  "google/gemma-3-27b-it:free",
-  "mistralai/mistral-small-3.2-24b-instruct:free",
-  "deepseek/deepseek-chat-v3.1:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "openai/gpt-oss-20b:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "z-ai/glm-5.2:free",
+  "google/gemma-4-31b-it:free",
 ];
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+// gemini-2.0-flash is retired (404, "use models/gemini-3.6-flash") and
+// 2.5-flash spends its whole output allowance on hidden reasoning, coming back
+// finishReason MAX_TOKENS with no text at all. Both of these answer normally.
+const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-flash-latest"];
 
 const RATE_MSG = "AI лимиті бітті — қазір қарапайым аудармамен жұмыс істейміз.";
 const NO_KEY_MSG = "AI кілттері бапталмаған";
@@ -207,9 +216,21 @@ async function callGemini(
   return text as string;
 }
 
-/// Walks every free model in turn. A model that is out of quota costs one
+/// Walks every provider in turn. One that is out of quota costs a single
 /// failed request and the next one is tried immediately.
-async function complete(prompt: string, temperature = 0.3, maxTokens = 2048) {
+///
+/// `trustedOnly` skips the free OpenRouter models. Use it for any task whose
+/// answer is written into the shared dictionary. Measured against known words,
+/// those models return confident, well-formed, WRONG JSON — "кітап" came back
+/// as "unknown", "жалаңаш" as "silly" and "yellowish" — and dict_upsert makes
+/// one bad answer permanent for every learner. Where nothing is persisted
+/// (chat, explain, enrich) they are a genuine safety net and stay in the chain.
+async function complete(
+  prompt: string,
+  temperature = 0.3,
+  maxTokens = 2048,
+  trustedOnly = false,
+) {
   const problems: string[] = [];
 
   if (OPENAI_KEY) {
@@ -220,16 +241,12 @@ async function complete(prompt: string, temperature = 0.3, maxTokens = 2048) {
     }
   }
 
-  for (const model of FREE_MODELS) {
-    try {
-      return await callOpenRouter(model, prompt, temperature, maxTokens);
-    } catch (e) {
-      const msg = String(e);
-      problems.push(msg);
-      if (msg.includes(NO_KEY_MSG)) break; // no key at all — skip the rest
-    }
-  }
-
+  // Gemini before OpenRouter, deliberately. Accuracy decides the order here,
+  // not speed: a translate answer is written straight into the shared
+  // dictionary, so a confident wrong answer becomes every learner's answer.
+  // Probed on "жалаңаш", Gemini returned "naked" while the free OpenRouter
+  // models returned "newcomer", "silly" and "yellowish" — which is how the
+  // dictionary came to answer "жалаңаш" with the wrong word in the first place.
   for (const model of GEMINI_MODELS) {
     try {
       return await callGemini(model, prompt, temperature, maxTokens);
@@ -237,6 +254,18 @@ async function complete(prompt: string, temperature = 0.3, maxTokens = 2048) {
       const msg = String(e);
       problems.push(msg);
       if (msg.includes(NO_KEY_MSG)) break;
+    }
+  }
+
+  if (!trustedOnly) {
+    for (const model of FREE_MODELS) {
+      try {
+        return await callOpenRouter(model, prompt, temperature, maxTokens);
+      } catch (e) {
+        const msg = String(e);
+        problems.push(msg);
+        if (msg.includes(NO_KEY_MSG)) break; // no key at all — skip the rest
+      }
     }
   }
 
@@ -459,6 +488,17 @@ Deno.serve(async (req) => {
 
     const task = clean(body.task) || "translate";
 
+    // health: which keys are configured (never their values). Live provider
+    // probing lives in the separate `ai-probe` function.
+    if (task === "health") {
+      return ok({
+        openai: OPENAI_KEY.length > 0,
+        openai_model: OPENAI_KEY ? OPENAI_MODEL : null,
+        openrouter: OPENROUTER_KEY.length > 0,
+        gemini: GEMINI_KEY.length > 0,
+      });
+    }
+
     // ── translate: cache-first, then AI, then a keyless fallback ──
     if (task === "translate") {
       const term = clean(body.text);
@@ -492,7 +532,7 @@ Deno.serve(async (req) => {
       let parsed: Record<string, unknown> | null = null;
       let llmError = "";
       try {
-        parsed = parseJson(await complete(prompt, 0.2, 1024));
+        parsed = parseJson(await complete(prompt, 0.2, 1024, true));
       } catch (e) {
         llmError = e instanceof Error ? e.message : String(e);
       }
@@ -568,7 +608,7 @@ Deno.serve(async (req) => {
         `Return ONLY a raw JSON array; each item has:\n` +
         `  en, kk, pos, definition_en, synonyms (array of 2-3), example_en, emoji, cefr, topic`;
 
-      const list = parseJson(await complete(prompt, 0.75, 2048));
+      const list = parseJson(await complete(prompt, 0.75, 2048, true));
       if (!Array.isArray(list)) return fail(say("noList", lang));
 
       const saved: unknown[] = [];

@@ -1,7 +1,7 @@
 name: sozqor
 description: SozQor — ағылшын сөздерін ойнап үйрен, баттлға түс, жең.
 publish_to: 'none'
-version: 4.0.0+1
+version: 4.0.1+2
 
 environment:
   sdk: '>=3.5.0 <4.0.0'

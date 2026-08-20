@@ -1,0 +1,71 @@
+# Builds the web app and publishes it to GitHub Pages on every push to main.
+#
+# The build output is deliberately not committed — it is 40 MB of generated
+# files that would churn on every change — so CI rebuilds it here instead.
+#
+# --pwa-strategy=none is not optional: Flutter's own service worker caches the
+# whole app on the device and keeps serving it after a deploy, which is how a
+# shipped fix ends up invisible on a phone that has opened the site before.
+# Web push is unaffected; it runs through firebase-messaging-sw.js.
+
+name: web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages needs these; the concurrency group stops two pushes racing to deploy.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # A build that ships a analyzer error or a failing test is not worth
+      # publishing, so both gate the deploy.
+      - run: flutter analyze --no-pub
+      - run: flutter test
+
+      # FCM_VAPID_KEY is optional: without it web push simply stays off and
+      # everything else works, so a fork with no secret still builds.
+      # Set it under Settings → Secrets and variables → Actions.
+      #
+      # base-href must match the repo name for a project Pages site
+      # (username.github.io/sozqor/), or every asset 404s.
+      - name: Build web
+        run: |
+          flutter build web --release \
+            --pwa-strategy=none \
+            --base-href "/${GITHUB_REPOSITORY#*/}/" \
+            --dart-define=FCM_VAPID_KEY="${{ secrets.FCM_VAPID_KEY }}"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

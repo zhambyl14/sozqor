@@ -329,7 +329,7 @@ class _Step extends StatelessWidget {
 }
 
 /// Shared phone field so every screen formats numbers the same way.
-class PhoneField extends StatelessWidget {
+class PhoneField extends StatefulWidget {
   final TextEditingController controller;
   final String? hint;
   final bool enabled;
@@ -337,9 +337,60 @@ class PhoneField extends StatelessWidget {
     super.key, required this.controller, this.hint, this.enabled = true});
 
   @override
+  State<PhoneField> createState() => _PhoneFieldState();
+}
+
+class _PhoneFieldState extends State<PhoneField> {
+  /// Every account here is a Kazakh number, so the country code is a constant
+  /// the learner should never have to type.
+  ///
+  /// It sits in the field's TEXT rather than in the decoration on purpose:
+  /// PhoneAuthRepo.normalize reads the digits straight off the controller, so
+  /// a decorative prefix would be invisible to it and every number would be
+  /// registered one digit short — a different account than the one typed.
+  static const _prefix = '+7 ';
+
+  @override
+  void initState() {
+    super.initState();
+    if (PhoneAuthRepo.normalize(widget.controller.text).isEmpty) {
+      widget.controller.value = const TextEditingValue(
+        text: _prefix,
+        selection: TextSelection.collapsed(offset: _prefix.length),
+      );
+    }
+    widget.controller.addListener(_keepPrefix);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_keepPrefix);
+    super.dispose();
+  }
+
+  /// Backspacing through the country code leaves a number that still looks
+  /// complete but resolves to a different account, so the prefix goes back.
+  void _keepPrefix() {
+    if (widget.controller.text.startsWith(_prefix)) return;
+    var digits = PhoneAuthRepo.normalize(widget.controller.text);
+    // A pasted or dictated number usually carries its own 7 or 8 in front.
+    // Only strip it when there are more digits than a local number has,
+    // otherwise a real subscriber number starting with 7 loses its first one.
+    if (digits.length > 10 &&
+        (digits.startsWith('7') || digits.startsWith('8'))) {
+      digits = digits.substring(1);
+    }
+    final text = _prefix + digits;
+    widget.controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) => TextFormField(
-    controller: controller,
-    enabled: enabled,
+    controller: widget.controller,
+    enabled: widget.enabled,
     keyboardType: TextInputType.phone,
     autofillHints: const [AutofillHints.telephoneNumber],
     inputFormatters: [
@@ -347,11 +398,15 @@ class PhoneField extends StatelessWidget {
       LengthLimitingTextInputFormatter(20),
     ],
     decoration: InputDecoration(
-      hintText: hint ?? '+7 700 123 45 67',
+      hintText: widget.hint ?? '+7 700 123 45 67',
       prefixIcon: const Icon(PhosphorIconsBold.phone, size: 18)),
     validator: (v) {
       final t = (v ?? '').trim();
-      if (t.isEmpty) return tr('Бұл өріс міндетті');
+      // The field is seeded with the country code, so "nothing entered" is a
+      // lone "+7" rather than a zero-length string.
+      if (t.isEmpty || PhoneAuthRepo.normalize(t).length <= 1) {
+        return tr('Бұл өріс міндетті');
+      }
       if (!PhoneAuthRepo.looksValid(t)) return tr('Нөмір толық емес');
       return null;
     },

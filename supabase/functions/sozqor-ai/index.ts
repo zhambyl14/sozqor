@@ -608,6 +608,14 @@ Deno.serve(async (req) => {
         `Return ONLY a raw JSON array; each item has:\n` +
         `  en, kk, pos, definition_en, synonyms (array of 2-3), example_en, emoji, cefr, topic`;
 
+      // trustedOnly, like translate, and for the same reason: every item here
+      // goes through dict_upsert into the dictionary everyone shares. Allowing
+      // the free models back in was tried and measured — they answered
+      // "hotel" with "гостиница" (Russian, not Kazakh), "airport" with the
+      // misspelled "ауэжай", and explained "window" as "ереже". A learner
+      // seeing "AI лимиті бітті" has lost one tap; a learner taught that
+      // "қонақүй" is "гостиница" has been taught the wrong thing, and so has
+      // everyone who looks that word up afterwards.
       const list = parseJson(await complete(prompt, 0.75, 2048, true));
       if (!Array.isArray(list)) return fail(say("noList", lang));
 

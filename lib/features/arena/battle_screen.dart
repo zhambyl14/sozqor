@@ -65,6 +65,12 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   StreamSubscription<Battle?>? _watch;
   Timer? _tick;
   Timer? _botTimer;
+  /// Realtime is the fast path for "the opponent finished", but it is not a
+  /// guarantee: the socket can drop while the result screen is open and
+  /// nothing ever arrives, leaving the learner on "Қарсыласты күтудеміз"
+  /// forever with no way forward. This re-reads the row on a timer until the
+  /// match is settled, so the wait always ends.
+  Timer? _awaitOpp;
 
   int _index = 0;
   int _score = 0;
@@ -119,6 +125,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   void dispose() {
     _tick?.cancel();
     _botTimer?.cancel();
+    _awaitOpp?.cancel();
     _watch?.cancel();
     if (_channel != null) supa.removeChannel(_channel!);
     Speech.instance.stop();
@@ -353,6 +360,47 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+
+    _pollForOpponent();
+  }
+
+  /// Keeps re-reading the battle row until the opponent's result lands.
+  ///
+  /// Everything else here depends on a live socket: the broadcast channel for
+  /// their progress, the postgres stream for their submitted row. Neither is
+  /// guaranteed to arrive — a backgrounded app, a dropped websocket, or a
+  /// reconnect that misses the one UPDATE it needed all end the same way, with
+  /// the result screen frozen on "waiting" while the opponent has long since
+  /// finished. Polling is the floor under that: slow, but it always resolves.
+  ///
+  /// Stops as soon as the match is settled, and gives up after two minutes so
+  /// an abandoned opponent does not leave a timer running for the session.
+  void _pollForOpponent() {
+    if (_isBot || _oppFinished || _battle.oppIsDone(_uid)) return;
+    _awaitOpp?.cancel();
+
+    var tries = 0;
+    _awaitOpp = Timer.periodic(const Duration(seconds: 3), (t) async {
+      if (!mounted || ++tries > 40) {
+        t.cancel();
+        return;
+      }
+      final fresh = await ref.read(battleRepoProvider).byId(_battle.id)
+          .catchError((_) => null);
+      if (!mounted || fresh == null) return;
+      if (!fresh.oppIsDone(_uid)) return;
+
+      t.cancel();
+      setState(() {
+        _battle = fresh;
+        _oppFinished = true;
+        _oppScore = max(_oppScore, fresh.oppScore(_uid));
+      });
+      // The opponent finishing is what decides the match, so the numbers the
+      // rest of the app shows are only correct once that has landed.
+      refreshAll(ref);
+      ref.invalidate(battleHistoryProvider);
+    });
   }
 
   // ── UI ───────────────────────────────────────────────────
@@ -399,9 +447,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                       battle: _battle,
                       uid: _uid,
                       myScore: _score,
-                      oppScore: _isBot ? _oppScore : _battle.oppScore(_uid),
+                      oppScore: _isBot
+                          ? _oppScore
+                          : max(_battle.oppScore(_uid), _oppScore),
                       oppName: _oppName,
-                      oppFinished: _isBot || _battle.oppIsDone(_uid),
+                      // Either signal settles this. The row is authoritative
+                      // but slow, the broadcast is fast but not persisted;
+                      // reading only the row is what left this screen stuck
+                      // on "waiting" after the opponent had visibly finished.
+                      oppFinished:
+                          _isBot || _oppFinished || _battle.oppIsDone(_uid),
                       correct: _correct,
                       total: _questions.length,
                       rounds: _rounds,

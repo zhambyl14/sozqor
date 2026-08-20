@@ -38,13 +38,4 @@ flutter build web --release \
   --pwa-strategy=none \
   --dart-define=FCM_VAPID_KEY="${FCM_VAPID_KEY:-}"
 
-# web/_redirects holds `/* /index.html 200`, which is how Netlify is told to
-# serve a single-page app. Cloudflare reads the same file but rejects that
-# rule outright — /index.html matches /* , so it scores it an infinite loop
-# and fails the deploy (error 100324). Here the same job is done by
-# `not_found_handling: single-page-application` in wrangler.jsonc, so the
-# file is only in the way. Dropped from the output rather than the repo,
-# because Netlify still needs it.
-rm -f build/web/_redirects
-
 echo "→ built build/web"

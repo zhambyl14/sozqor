@@ -1,4 +1,0 @@
-# Flutter web is a single page: every path has to be answered by index.html
-# and routed on the client. Without this a refresh on any deep link — or a
-# push notification opening one — returns Netlify's 404 instead of the app.
-/*  /index.html  200

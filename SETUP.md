@@ -122,12 +122,17 @@ Supabase → **SQL Editor** → `supabase/sql/device_tokens.sql` файлыны�
 > `applicationId` = `com.example.sozqor_app`. Оны өзгертсең, Firebase-те жаңа
 > Android app тіркеп, жаңа `google-services.json` жүктеу керек.
 
-### 4.3 Web (sozqor.netlify.app)
+### 4.3 Web (sozqor.tarazblt12005.workers.dev)
 
 1. https://console.firebase.google.com → **sozqor** → ⚙️ **Project settings**
    → **Cloud Messaging** → `Web configuration` → **Generate key pair**
 2. Шыққан ұзын кілтті көшір
-3. Веб-нұсқаны сол кілтпен жина:
+3. Cloudflare → **sozqor** → **Settings** → **Variables** → `FCM_VAPID_KEY`
+   деген айнымалы қосып, кілтті соған қой
+4. `git push` — Cloudflare өзі жинап, өзі шығарады
+   (`tool/cf_build.sh` → `npx wrangler deploy`)
+
+Қолмен жинау керек болса:
 
 ```bash
 flutter build web --release --pwa-strategy=none --dart-define=FCM_VAPID_KEY=<КІЛТ>
@@ -136,7 +141,7 @@ flutter build web --release --pwa-strategy=none --dart-define=FCM_VAPID_KEY=<К�
 `web/firebase-messaging-sw.js` файлы дайын тұр — оны өзгертудің қажеті жоқ.
 
 > **`--pwa-strategy=none` міндетті.** Онсыз Flutter өзінің service worker-ін
-> қосады, ол қосымшаны телефонның кэшіне жазып қояды — сосын Netlify-ге жаңа
+> қосады, ол қосымшаны телефонның кэшіне жазып қояды — сосын Cloudflare-ге жаңа
 > нұсқа шықса да, телефон ескісін көрсете береді. Web push бұдан зардап
 > шекпейді: ол бөлек `firebase-messaging-sw.js` арқылы жұмыс істейді.
 

@@ -1,0 +1,20 @@
+{
+  // Cloudflare Workers, serving the built web app as static assets.
+  //
+  // There is no Worker script: `assets` alone makes this a static site, which
+  // is all a Flutter web build needs. Wrangler uploads whatever is in
+  // `directory`, so `tool/cf_build.sh` has to have run first — Cloudflare's
+  // build image does not ship Flutter.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sozqor",
+  "compatibility_date": "2026-08-01",
+
+  "assets": {
+    "directory": "./build/web",
+
+    // Flutter web is a single page that routes on the client. Without this,
+    // a refresh on any path — or a notification opening one — gets a 404
+    // instead of the app.
+    "not_found_handling": "single-page-application"
+  }
+}

@@ -257,7 +257,11 @@ class _Step extends StatelessWidget {
       children: [
         SqAvatar(row.name, size: 42, tint: tint, solid: true),
         const SizedBox(height: 8),
+        // Names are shown in full rather than clipped, so a long one takes a
+        // second line; centred, that reads as a caption instead of a ragged
+        // block under a centred avatar.
         Text(row.name,
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 12, fontWeight: FontWeight.w800,
             color: AppColors.text(d))),

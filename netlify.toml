@@ -1,0 +1,23 @@
+# The app is hosted on Cloudflare. This file exists only so the old Netlify
+# address cannot keep serving a stale copy of it.
+#
+# sozqor.netlify.app was the original home and is still bookmarked on phones.
+# It kept answering with an older bundle long after Cloudflare had the current
+# one, which looks exactly like "nothing I asked for was deployed" — the same
+# app, the same URL, none of the new screens. Sending every path onward is
+# safer than leaving two live copies and hoping the right one gets opened.
+#
+# Cloudflare ignores this file entirely; its own configuration is wrangler.jsonc.
+
+[build]
+  # Nothing to build. The redirect below is the whole deployment, so Netlify
+  # must not try to run Flutter — that would take minutes and produce a second
+  # copy of the app, which is the problem this file exists to end.
+  publish = "netlify_redirect"
+  command = "mkdir -p netlify_redirect && printf '%s' 'Moved to https://sozqor.tarazblt12005.workers.dev' > netlify_redirect/index.html"
+
+[[redirects]]
+  from = "/*"
+  to = "https://sozqor.tarazblt12005.workers.dev/:splat"
+  status = 301
+  force = true

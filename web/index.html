@@ -72,33 +72,50 @@
       setTimeout(function () { el.remove(); }, 260);
     });
 
-    // Evict Flutter's app-shell service worker.
+    // Evict any app-shell service worker left over from an earlier build.
     //
-    // Builds now use --pwa-strategy=none, but a phone that installed an
-    // earlier build still has the old worker resident, and it keeps serving
-    // its cached copy of the app forever — a deploy lands on Netlify and the
-    // device never sees it. Nothing here can reach those caches from the
-    // server side, so the page evicts the worker itself on first load and
-    // reloads once into the real, current build.
+    // Builds use --pwa-strategy=none, but a device that installed an earlier
+    // build still has that worker resident, and it keeps serving its own
+    // cached copy of the app forever — a deploy lands and the phone never
+    // sees it. Nothing on the server can reach those caches, so the page
+    // clears them itself and reloads once into the current build.
     //
-    // firebase-messaging-sw.js is a different worker and is deliberately left
-    // alone: web push is registered through it.
+    // Everything except firebase-messaging-sw.js is removed, rather than only
+    // scripts named flutter_service_worker: a worker registered by an older
+    // build, or by the Netlify copy of this app, does not necessarily carry
+    // that name, and leaving one behind is indistinguishable from the deploy
+    // having failed. Push is registered through firebase-messaging-sw.js and
+    // is deliberately left alone.
+    //
+    // The reload is fired at most once per tab. A worker only stops
+    // controlling a page after every tab it owns has gone, so a second tab
+    // left open on an old build can hold the previous worker alive; the
+    // guard keeps that from turning into a reload loop.
     if ('serviceWorker' in navigator) {
+      var RELOAD_KEY = 'sq_sw_evicted';
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         var stale = regs.filter(function (r) {
-          var url = (r.active && r.active.scriptURL) || '';
-          return url.indexOf('flutter_service_worker') !== -1;
+          var url = (r.active && r.active.scriptURL) ||
+                    (r.installing && r.installing.scriptURL) ||
+                    (r.waiting && r.waiting.scriptURL) || '';
+          return url.indexOf('firebase-messaging-sw') === -1;
         });
         if (!stale.length) return;
         Promise.all(stale.map(function (r) { return r.unregister(); }))
           .then(function () {
             return caches.keys().then(function (keys) {
-              return Promise.all(keys
-                .filter(function (k) { return k.indexOf('flutter') !== -1; })
-                .map(function (k) { return caches.delete(k); }));
+              return Promise.all(keys.map(function (k) {
+                return caches.delete(k);
+              }));
             });
           })
-          .then(function () { window.location.reload(); });
+          .then(function () {
+            var done = false;
+            try { done = sessionStorage.getItem(RELOAD_KEY) === '1'; } catch (e) {}
+            if (done) return;
+            try { sessionStorage.setItem(RELOAD_KEY, '1'); } catch (e) {}
+            window.location.reload();
+          });
       }).catch(function () {/* a browser that refuses is simply left alone */});
     }
   </script>

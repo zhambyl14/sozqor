@@ -34,8 +34,20 @@ flutter pub get
 #
 # FCM_VAPID_KEY is optional: without it web push simply stays off and the rest
 # of the app is unchanged. Set it in Cloudflare → Settings → Variables.
+# The commit is baked in so the running app can name the build it came
+# from. Without it "is my change in this app?" has no answer from a phone:
+# a stale service worker and an old bookmark look identical to a deploy
+# that never happened. Cloudflare sets CF_PAGES_COMMIT_SHA; the git
+# fallback covers running this script by hand.
+BUILD_STAMP="${CF_PAGES_COMMIT_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+BUILD_STAMP="${BUILD_STAMP:0:7}"
+APP_VERSION="$(grep '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d'+' -f1)"
+echo "-> building ${APP_VERSION} - ${BUILD_STAMP}"
+
 flutter build web --release \
   --pwa-strategy=none \
+  --dart-define=APP_VERSION="${APP_VERSION}" \
+  --dart-define=BUILD_STAMP="${BUILD_STAMP}" \
   --dart-define=FCM_VAPID_KEY="${FCM_VAPID_KEY:-}"
 
 echo "→ built build/web"

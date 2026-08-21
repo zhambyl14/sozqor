@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 import '../../core/constants/game_meta.dart';
+import '../../core/constants/build_info.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/repos/phone_auth_repo.dart';
@@ -737,8 +738,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onTap: _busy ? null : _logout),
           const SizedBox(height: 18),
         ],
+        // The build stamp, not a hardcoded label. "Is my change in this app?"
+        // has no answer from a phone otherwise: a stale service worker, a
+        // second tab keeping the old worker alive, and an old bookmark all
+        // look the same from the outside — the app opens and the new screens
+        // are missing. Reading the commit here settles it in one glance.
         Center(
-          child: SqNum('SozQor 4.0',
+          child: SqNum('SozQor $buildLabel',
             size: 11.5, color: AppColors.text4(d))),
       ],
     );

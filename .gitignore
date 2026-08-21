@@ -56,6 +56,8 @@ android/key.properties
 # Gradle leaves generated copies of google-services.json under here, keys and
 # all, which would otherwise walk straight past the ignore rule below.
 android/app/build/
+# Gradle also writes a top-level build/ with its problem reports.
+android/build/
 android/.gradle/
 supabase/.temp/
 

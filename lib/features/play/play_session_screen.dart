@@ -28,6 +28,7 @@ import '../../data/models/dict_entry.dart';
 import '../../data/models/question.dart';
 import '../../data/models/word.dart';
 import '../../data/supa.dart';
+import '../../services/ads.dart';
 import '../../providers.dart';
 import '../../services/achievements.dart';
 import '../../services/question_factory.dart';
@@ -86,6 +87,11 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
   int _combo = 0;
   int _bestCombo = 0;
   int _lives = _marathonLives;
+  /// Set once a rewarded ad has bought this run an extra life. The run
+  /// carries on for the practice, but its score never reaches the arcade
+  /// board — a record anyone can extend by watching videos is not a
+  /// record, and every board in this app ranks on numbers people earned.
+  bool _revived = false;
   int _secondsLeft = _timeAttackSeconds;
   int _elapsedMs = 0;
 
@@ -381,7 +387,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
   }
 
   void _next() {
-    if (_isMarathon && _lives <= 0) { _finish(); return; }
+    if (_isMarathon && _lives <= 0) { _offerRevive(); return; }
     _extendIfNeeded();
     if (_index + 1 >= _questions.length) { _finish(); return; }
     setState(() {
@@ -408,6 +414,38 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
     _answer(built);
   }
 
+  /// Out of lives: offer one more in exchange for a rewarded ad.
+  ///
+  /// Nothing is offered when no ad can be shown — on the web build, or with no
+  /// fill — so the run simply ends as it always did rather than dangling a
+  /// button that cannot work.
+  Future<void> _offerRevive() async {
+    if (!AdsService.instance.supported) { _finish(); return; }
+
+    final take = await sqConfirm(context,
+      title: tr('Жандарың бітті'),
+      message: tr('Жарнама көріп, тағы бір жан ал. '
+          'XP берілмейді — рейтинг таза қалады'),
+      confirm: tr('Жарнама көру'),
+      cancel: tr('Аяқтау'),
+      danger: false);
+    if (!mounted) return;
+    if (!take) { _finish(); return; }
+
+    final outcome = await AdsService.instance.showRewardedOutcome();
+    if (!mounted) return;
+
+    if (!outcome.grantsReward) {
+      final msg = outcome.message;
+      if (msg != null) sqSnack(context, tr(msg));
+      _finish();
+      return;
+    }
+
+    setState(() { _lives = 1; _revived = true; });
+    _next();
+  }
+
   // ── finishing ────────────────────────────────────────────
 
   Future<void> _finish() async {
@@ -428,11 +466,14 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
 
       switch (widget.mode) {
         case PlayMode.marathon:
-          final (_, best, record) = await ref
-              .read(boardRepoProvider)
-              .submitGameScore('marathon', _score,
-                  meta: {'correct': _correct, 'combo': _bestCombo});
-          _best = best; _isRecord = record;
+          // Skipped for a revived run: see [_revived].
+          if (!_revived) {
+            final (_, best, record) = await ref
+                .read(boardRepoProvider)
+                .submitGameScore('marathon', _score,
+                    meta: {'correct': _correct, 'combo': _bestCombo});
+            _best = best; _isRecord = record;
+          }
 
         case PlayMode.timeAttack:
           final (_, best, record) = await ref

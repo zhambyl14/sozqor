@@ -29,8 +29,13 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    // Kotlin 2.3 removed the kotlinOptions DSL outright — `jvmTarget: String`
+    // is a hard error there, not a warning. The plugin had to move to 2.3 so
+    // play-services-ads 25.x, whose metadata is Kotlin 2.3, would compile.
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 
     defaultConfig {

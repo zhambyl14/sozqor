@@ -51,6 +51,16 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Future<void> _editName() async {
     final ctrl = TextEditingController(
       text: ref.read(myProfileProvider).value?.displayName ?? '');
+    // Built per call rather than held as a field, so it has to be released
+    // per call too — otherwise every visit to the rename dialog leaks one.
+    try {
+      await _askName(ctrl);
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
+  Future<void> _askName(TextEditingController ctrl) async {
     final value = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(

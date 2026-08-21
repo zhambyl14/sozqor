@@ -27,6 +27,7 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/question_factory.dart';
 import '../auth/guest_gate.dart';
+import '../events/events_screen.dart';
 import '../play/play_session_screen.dart';
 import 'battle_screen.dart';
 import 'clan_screen.dart';
@@ -463,6 +464,27 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
 
         // ignore: prefer_const_constructors
         _TeamCard(),
+        const SizedBox(height: 20),
+
+        // Events sit in Arena rather than Play because they are the
+        // competitive side of the app: a moderator runs them, they rank
+        // people, and they hand out prizes. They had no entrance at all until
+        // now — the rows existed on the server and nothing ever showed them.
+        Consumer(
+          builder: (_, ref, __) {
+            final n = ref.watch(activeEventsProvider).value?.length ?? 0;
+            return SqTile(
+              leading: const SqTintBox(PhosphorIconsFill.confetti,
+                  tint: AppColors.primary, size: 36),
+              title: tr('Ивенттер'),
+              subtitle: n > 0
+                  ? trp('{p1} ивент жүріп жатыр', {'p1': '$n'})
+                  : tr('Жаңасын күт'),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const EventsScreen())),
+            );
+          },
+        ),
         const SizedBox(height: 20),
 
         SqSection(tr('Соңғы баттлдар')),

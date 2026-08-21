@@ -11,6 +11,20 @@
         android:label="SozQor"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- The AdMob SDK reads this at startup and throws if it is absent,
+             so a missing tag is a crash the moment a rewarded ad is asked
+             for, not a silently disabled feature.
+
+             TEST id. Google's sample application id serves test inventory to
+             any app; it earns nothing and must be replaced with the real one
+             from the AdMob console before release. AdUnits in
+             lib/services/ads.dart holds the matching test/live unit ids, and
+             STORE.md lists this as a release step. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -103,12 +103,28 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     setState(() => _busy = true);
     try {
       final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+
+      // Who said which line matters as much as the lines themselves. The edge
+      // function pastes these into the prompt under "Conversation so far", and
+      // an unlabelled wall of sentences gives the model no way to tell the
+      // learner's words from its own — which is exactly how a reply ends up
+      // answering something nobody asked.
+      //
+      // The final entry is dropped because it is the turn being sent as
+      // `message`; including it as well had the model reading the same
+      // sentence twice and echoing it back.
+      final past = _messages.isEmpty
+          ? const <_Msg>[]
+          : _messages.sublist(0, _messages.length - 1);
+
       final reply = await SozQorAI.instance.chat(
         scenario: _scenario,
         cefr: cefr,
         message: mine,
         studyLang: ref.read(nativeLangProvider),
-        history: _messages.map((m) => m.text).toList(),
+        history: [
+          for (final m in past) '${m.mine ? 'Learner' : 'You'}: ${m.text}',
+        ],
       );
       if (!mounted) return;
       setState(() {

@@ -39,6 +39,7 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   phosphoricons_flutter: ^1.0.0
+  google_mobile_ads: ^9.1.0
 
 dev_dependencies:
   flutter_test:

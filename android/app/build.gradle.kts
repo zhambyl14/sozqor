@@ -1,8 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// The upload key lives outside the repository: a leaked key cannot be revoked,
+// only abandoned, so `android/key.properties` and `*.jks` stay gitignored and
+// the build reads them only when the machine actually has them.
+val keystorePropsFile = rootProject.file("key.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) {
+        keystorePropsFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -22,7 +34,10 @@ android {
     }
 
     defaultConfig {
-        // Must stay in sync with the package_name inside google-services.json.
+        // Must stay in sync with the package_name inside google-services.json,
+        // which is why renaming this away from com.example — which both stores
+        // refuse — is a Firebase step, not a one-line edit. STORE.md §1 has the
+        // order to do it in.
         applicationId = "com.example.sozqor_app"
         minSdk = flutter.minSdkVersion
         targetSdk = 36
@@ -30,10 +45,28 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Declared only when the key file is there — an empty signing config
+        // fails the whole configuration phase, which would break the build for
+        // everyone who does not hold the key.
+        if (keystorePropsFile.exists()) {
+            create("release") {
+                storeFile = keystoreProps.getProperty("storeFile")?.let { file(it) }
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         getByName("release") {
-            // TODO: replace with a real upload key before publishing to stores.
-            signingConfig = signingConfigs.getByName("debug")
+            // Without key.properties this falls back to the debug key so a
+            // checkout still builds and runs in release mode. That is never
+            // mistaken for a shippable artifact: both stores reject a
+            // debug-signed upload outright. See STORE.md.
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

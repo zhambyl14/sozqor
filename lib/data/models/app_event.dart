@@ -107,7 +107,13 @@ class AppEvent {
   String? get rules => _pick(rulesKk, rulesRu);
   String? get who => _pick(whoKk, whoRu);
 
-  bool get hasPrizeItem => prizeItem != null && prizeTopN > 0;
+  /// A prize item with no top-N is not a missing value — it reads as "finish
+  /// it and the item is yours", where a top-N reads as "beat this many people
+  /// to it". Requiring both hid the prize on every seeded event, all of which
+  /// name an item and leave the cutoff at zero.
+  bool get hasPrizeItem => (prizeItem ?? '').isNotEmpty;
+
+  bool get prizeIsRanked => hasPrizeItem && prizeTopN > 0;
 
   /// A0-only and C1-only events are common, and "A0 — A0" reads worse than
   /// just "A0".

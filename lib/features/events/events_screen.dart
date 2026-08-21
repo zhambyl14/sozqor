@@ -250,12 +250,7 @@ class _EventSheet extends ConsumerWidget {
               _section(dark, tr('Кім қатыса алады'), event.who),
 
               if (event.hasPrizeItem)
-                _section(
-                  dark,
-                  tr('Жүлде'),
-                  trp('Үздік {p1} қатысушы дүкен затын алады', {
-                    'p1': '${event.prizeTopN}',
-                  })),
+                _section(dark, tr('Жүлде'), _prizeLine(ref)),
 
               if (progress != null) ...[
                 const SizedBox(height: 20),
@@ -285,6 +280,27 @@ class _EventSheet extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Names the actual item where the catalogue is loaded. Falling back to the
+  /// raw id would show "badge_book" to a learner, so an unresolved item is
+  /// described by what it is rather than by what the row calls it.
+  String _prizeLine(WidgetRef ref) {
+    final id = event.prizeItem ?? '';
+    final name = ref.watch(shopCatalogueProvider).maybeWhen(
+      data: (items) {
+        for (final c in items) {
+          if (c.id == id) return c.name;
+        }
+        return null;
+      },
+      orElse: () => null,
+    );
+    final what = name ?? tr('дүкен заты');
+    return event.prizeIsRanked
+        ? trp('Үздік {p1} қатысушы «{item}» алады',
+            {'p1': '${event.prizeTopN}', 'item': what})
+        : trp('Аяқтасаң «{item}» сенікі', {'item': what});
   }
 
   /// Renders nothing at all when the moderator left the field blank, rather

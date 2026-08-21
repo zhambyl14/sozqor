@@ -1454,10 +1454,28 @@ class SqPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: background ?? AppColors.bg(isDark(context)),
       floatingActionButton: floating,
-      body: SafeArea(bottom: false, child: list),
+      // Every screen here is laid out for a phone. Left unbounded in a desktop
+      // browser the same content stretches across 1900pt: stat cards land at
+      // opposite edges, rows read as unrelated fragments, and a page that is
+      // full on a phone looks half empty. Capping the column keeps the design
+      // it was drawn at and centres it, which is what a wide window should do
+      // with a narrow layout.
+      body: SafeArea(
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _pageMaxWidth),
+            child: list,
+          ),
+        ),
+      ),
     );
   }
 }
+
+/// Wide enough for a large phone held in landscape, narrow enough that a
+/// desktop window does not spread a phone layout across the whole screen.
+const double _pageMaxWidth = 560;
 
 /// A column that fills the viewport when it fits and scrolls when it does not.
 ///

@@ -101,10 +101,19 @@ class _RootShellState extends ConsumerState<RootShell> {
       backgroundColor: AppColors.bg(d),
       extendBody: true,
       body: IndexedStack(index: index, children: _screens),
-      bottomNavigationBar: _NavBar(
-        index: index,
-        hasInvites: hasInvites,
-        onTap: (i) => ref.read(tabProvider.notifier).state = i,
+      // Matched to the cap SqPage puts on page content. Left full-width in a
+      // desktop browser the five tabs drift to opposite edges of the screen
+      // while the content above them sits in a centred column, which reads as
+      // two unrelated layouts rather than one app.
+      bottomNavigationBar: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: _NavBar(
+            index: index,
+            hasInvites: hasInvites,
+            onTap: (i) => ref.read(tabProvider.notifier).state = i,
+          ),
+        ),
       ),
     );
   }

@@ -178,8 +178,6 @@ class ReportScreen extends ConsumerWidget {
                               SizedBox(
                                 width: 82,
                                 child: Text(topicOf(strongest[i].topic).label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w700,

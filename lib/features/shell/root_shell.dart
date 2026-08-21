@@ -243,8 +243,6 @@ class _NavItem extends StatelessWidget {
             Transform.translate(
               offset: Offset(0, raised ? -6 : 0),
               child: Text(tab.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 9.5, fontWeight: FontWeight.w800,
                   letterSpacing: -0.1,

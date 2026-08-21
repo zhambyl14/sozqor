@@ -230,8 +230,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                               child: Text(
                                 trp('{s} · {cefr} деңгей',
                                   {'s': tr(_scenario), 'cefr': cefr}),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontSize: 11, fontWeight: FontWeight.w600,
                                   color: AppColors.text3(d))),

@@ -267,8 +267,6 @@ class _Value extends StatelessWidget {
   Widget build(BuildContext context) => ConstrainedBox(
     constraints: const BoxConstraints(maxWidth: 150),
     child: Text(text,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
       textAlign: TextAlign.right,
       style: TextStyle(
         fontSize: 12.5, fontWeight: FontWeight.w700,

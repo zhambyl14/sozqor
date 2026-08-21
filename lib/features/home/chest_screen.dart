@@ -320,8 +320,6 @@ class _PickCard extends StatelessWidget {
           const SizedBox(height: 11),
           Text(label,
             textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
         ],

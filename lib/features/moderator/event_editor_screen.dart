@@ -374,8 +374,6 @@ class _PickRow extends StatelessWidget {
               const SizedBox(width: 11),
               Expanded(
                 child: Text(value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 14, fontWeight: FontWeight.w800,
                     color: AppColors.text(d))),

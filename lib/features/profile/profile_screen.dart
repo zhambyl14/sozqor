@@ -111,8 +111,6 @@ class ProfileScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 14),
               Text(profile?.name ?? '…',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 21, fontWeight: FontWeight.w800,
                   letterSpacing: -0.4, color: AppColors.text(d))),
@@ -121,8 +119,6 @@ class ProfileScreen extends ConsumerWidget {
                 profile?.isGuest ?? false
                     ? tr('Қонақ аккаунт')
                     : '@${profile?.username ?? ''}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12.5, fontWeight: FontWeight.w600,
                   color: AppColors.text3(d))),

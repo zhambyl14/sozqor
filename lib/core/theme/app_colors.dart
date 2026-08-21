@@ -88,7 +88,12 @@ class AppColors {
   static const Color borderD  = Color(0xFF2C2950);
   static const Color dividerL = Color(0xFFF4F2FA);
   static const Color dividerD = Color(0xFF242143);
-  static const Color mutedL   = Color(0xFFF7F6FB);
+  // A recessed surface, one step below a card. This used to be
+  // 0xFFF7F6FB — the exact value of bgL — so any muted panel sitting
+  // directly on the page (the daily chest, the pack rows, the spelling
+  // keys) rendered at contrast ratio 1.00 against it and simply was not
+  // there. Dark mode never showed the bug because mutedD and bgD differ.
+  static const Color mutedL   = Color(0xFFE9E6F3);
   static const Color mutedD   = Color(0xFF201D3C);
 
   // ── Text ─────────────────────────────────────────────────

@@ -258,8 +258,6 @@ class _Step extends StatelessWidget {
         SqAvatar(row.name, size: 42, tint: tint, solid: true),
         const SizedBox(height: 8),
         Text(row.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 12, fontWeight: FontWeight.w800,
             color: AppColors.text(d))),

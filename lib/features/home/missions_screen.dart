@@ -78,8 +78,6 @@ class MissionsScreen extends ConsumerWidget {
                       children: [
                         Text(trp('{n}-деңгей · {rank}',
                             {'n': '$level', 'rank': _rankName(level)}),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 15, fontWeight: FontWeight.w800,
                             color: Colors.white)),
@@ -267,8 +265,6 @@ class _RewardRow extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(tr(reward.title),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13.5, fontWeight: FontWeight.w800,
                       color: AppColors.text(d))),

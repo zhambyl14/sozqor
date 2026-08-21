@@ -495,8 +495,6 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
                                       borderRadius: BorderRadius.circular(12)),
                                     child: Text(syllables[i],
                                       textAlign: TextAlign.center,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 12.5,
                                         fontWeight: FontWeight.w800,
@@ -657,8 +655,6 @@ class _RateButton extends StatelessWidget {
           Icon(icon, size: 20, color: AppColors.onSoft(tint, d)),
           const SizedBox(height: 5),
           Text(label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12, fontWeight: FontWeight.w800,
               color: AppColors.onSoft(tint, d))),

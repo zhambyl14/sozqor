@@ -307,8 +307,6 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
                           fontSize: 13, fontWeight: FontWeight.w800,
                           color: AppColors.greenInk)),
                       Text(tr('Дәл уақытында қайтала'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 11, fontWeight: FontWeight.w600,
                           color: AppColors.greenDeep)),

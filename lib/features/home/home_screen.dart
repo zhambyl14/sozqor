@@ -204,8 +204,6 @@ class _Shortcut extends StatelessWidget {
           Icon(icon, size: 22, color: tint),
           const SizedBox(height: 7),
           Text(label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 11.5, fontWeight: FontWeight.w800,
               color: AppColors.text(d))),
@@ -264,8 +262,6 @@ class _Greeting extends ConsumerWidget {
               SqEyebrow(greeting),
               const SizedBox(height: 1),
               Text(profile?.name ?? '…',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 19, fontWeight: FontWeight.w800,
                   letterSpacing: -0.45, color: AppColors.text(d))),
@@ -353,8 +349,6 @@ class _TodayPlan extends ConsumerWidget {
                           ? tr('Бүгінгі мақсат орындалды — жарайсың!')
                           : trp('{n} сөз қалды — шамамен {m} минут',
                               {'n': '$left', 'm': '$minutes'}),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12.5, fontWeight: FontWeight.w600,
                         height: 1.35, color: AppColors.onInk2)),
@@ -524,11 +518,19 @@ class _ChestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ready = meta.chestReady;
+    final d = isDark(context);
+    // The resting state used AppColors.muted as its fill, and in the light
+    // theme mutedL is 0xFFF7F6FB — the exact same value as bgL, the page
+    // behind it. Contrast ratio 1.00: the card was not dim, it was invisible,
+    // which is why this button looked like it had no colour at all. Dark mode
+    // hid the bug, because there mutedD and bgD genuinely differ.
+    //
+    // A card surface with a real outline reads as a button in both themes
+    // without pretending the chest is ready.
     return SqLip(
-      fill: ready ? AppColors.amber : AppColors.muted(isDark(context)),
-      lip: ready
-          ? AppColors.amberDeep
-          : (isDark(context) ? AppColors.borderD : const Color(0xFFEDEAF6)),
+      fill: ready ? AppColors.amber : AppColors.card(d),
+      lip: ready ? AppColors.amberDeep : AppColors.border(d),
+      border: ready ? null : AppColors.border(d),
       radius: 20,
       padding: const EdgeInsets.all(15),
       onTap: onTap,
@@ -543,7 +545,7 @@ class _ChestCard extends StatelessWidget {
                       child: Icon(PhosphorIconsFill.gift,
                         size: 26, color: Colors.white))
                   : Icon(PhosphorIconsFill.gift,
-                      size: 26, color: AppColors.text4(isDark(context))),
+                      size: 26, color: AppColors.text4(d)),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -562,8 +564,6 @@ class _ChestCard extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           Text(tr('Сыйлық сандығы'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13.5, fontWeight: FontWeight.w800,
               color: ready ? Colors.white : AppColors.text(isDark(context)))),
@@ -571,8 +571,6 @@ class _ChestCard extends StatelessWidget {
             ready
                 ? trp('{n}-күн қатарынан', {'n': '${meta.nextChestStreak}'})
                 : tr('Ертең жаңасы келеді'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w600,
               color: ready
@@ -630,8 +628,6 @@ class _MissionsCard extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           Text(tr('Миссия жолы'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13.5, fontWeight: FontWeight.w800,
               color: AppColors.text(d))),
@@ -741,14 +737,10 @@ class _WordOfDay extends ConsumerWidget {
                 SqEyebrow(tr('Күннің сөзі')),
                 const SizedBox(height: 5),
                 Text(w.en,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 24, fontWeight: FontWeight.w800,
                     letterSpacing: -0.7, color: AppColors.text(d))),
                 Text(w.native(lang),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 13.5, fontWeight: FontWeight.w700,
                     color: AppColors.primary)),

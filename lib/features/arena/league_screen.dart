@@ -232,8 +232,6 @@ class _TierPip extends StatelessWidget {
             size: 16, color: active ? Colors.white : AppColors.text4(d)),
           const SizedBox(height: 5),
           Text(tr(_tierNames[index]),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 9.5, fontWeight: FontWeight.w800,
               color: active ? Colors.white : AppColors.text4(d))),
@@ -262,8 +260,6 @@ class _Band extends StatelessWidget {
           const SizedBox(width: 8),
           Flexible(
             child: Text(label.toUpperCase(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 10.5, fontWeight: FontWeight.w800,
                 letterSpacing: 0.02,
@@ -309,8 +305,6 @@ class _Row extends StatelessWidget {
             child: Text(
               row.isMe
                   ? trp('{name} (сен)', {'name': row.name}) : row.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 13.5, fontWeight: FontWeight.w800,
                 color: row.isMe

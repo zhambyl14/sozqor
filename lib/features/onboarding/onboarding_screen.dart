@@ -525,8 +525,6 @@ class _SummaryRow extends StatelessWidget {
               color: AppColors.text2(d))),
         ),
         Text(value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 12.5, fontWeight: FontWeight.w800,
             color: AppColors.text(d))),
@@ -567,16 +565,12 @@ class _Choice extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 15, fontWeight: FontWeight.w800,
                     color: selected
                         ? AppColors.primaryDeep : AppColors.text(d))),
                 const SizedBox(height: 1),
                 Text(subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12, fontWeight: FontWeight.w600,
                     color: AppColors.text3(d))),

@@ -127,8 +127,6 @@ class _EventCard extends StatelessWidget {
                   children: [
                     Text(
                       event.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 15, fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
@@ -137,11 +135,9 @@ class _EventCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         event.subtitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12, fontWeight: FontWeight.w600,
-                          color: AppColors.muted(dark))),
+                          color: AppColors.text3(dark))),
                     ],
                   ],
                 ),
@@ -164,23 +160,21 @@ class _EventCard extends StatelessWidget {
                     }),
               style: TextStyle(
                 fontSize: 11, fontWeight: FontWeight.w700,
-                color: done ? AppColors.mint : AppColors.muted(dark))),
+                color: done ? AppColors.mint : AppColors.text3(dark))),
           ],
 
           const SizedBox(height: 11),
           Row(
             children: [
               Icon(PhosphorIconsBold.clock,
-                  size: 13, color: AppColors.muted(dark)),
+                  size: 13, color: AppColors.text3(dark)),
               const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   event.remainingLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11.5, fontWeight: FontWeight.w700,
-                    color: AppColors.muted(dark)))),
+                    color: AppColors.text3(dark)))),
               SqNum('+${event.xpReward} XP',
                   size: 12.5, color: AppColors.amber),
             ],
@@ -238,7 +232,7 @@ class _EventSheet extends ConsumerWidget {
                   style: TextStyle(
                     fontSize: 13, fontWeight: FontWeight.w600,
                     height: 1.45,
-                    color: AppColors.muted(dark))),
+                    color: AppColors.text3(dark))),
               ],
 
               const SizedBox(height: 16),
@@ -279,7 +273,7 @@ class _EventSheet extends ConsumerWidget {
                         }),
                   style: TextStyle(
                     fontSize: 12, fontWeight: FontWeight.w700,
-                    color: AppColors.muted(dark))),
+                    color: AppColors.text3(dark))),
               ],
 
               const SizedBox(height: 22),

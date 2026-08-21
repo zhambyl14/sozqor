@@ -577,8 +577,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                 Flexible(
                   child: Text(
                     trp('{name} жауап беруде…', {'name': _oppName}),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 10.5, fontWeight: FontWeight.w700,
                       color: AppColors.amber)),
@@ -738,8 +736,6 @@ class _PlayerCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white)),
         Text(rating,
@@ -1012,8 +1008,6 @@ class _BattleResult extends ConsumerWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(r.word,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 13.5, fontWeight: FontWeight.w800,
                               color: AppColors.text(d))),

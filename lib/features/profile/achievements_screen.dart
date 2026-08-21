@@ -126,8 +126,6 @@ class AchievementsScreen extends ConsumerWidget {
                       next == null
                           ? tr('Барлығы ашылды — керемет жұмыс!')
                           : trp('Келесі: «{p1}» — {p2} қалды', {'p1': tr(next.title), 'p2': '$nextLeft'}),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 11.5, height: 1.4,
                         fontWeight: FontWeight.w600,
@@ -238,8 +236,6 @@ class _Badge extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           Text(tr(a.title),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12.5, height: 1.3, fontWeight: FontWeight.w800,
               color: unlocked ? AppColors.text(d) : AppColors.text4(d))),

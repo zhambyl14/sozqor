@@ -65,8 +65,6 @@ class SqEyebrow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     text.toUpperCase(),
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
     style: AppTheme.mono(
       size: size,
       weight: FontWeight.w700,
@@ -97,8 +95,6 @@ class SqNum extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     value,
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
     style: AppTheme.mono(
       size: size,
       weight: weight,
@@ -133,8 +129,6 @@ class SqSection extends StatelessWidget {
         children: [
           Expanded(
             child: Text(title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 15, fontWeight: FontWeight.w800,
                 letterSpacing: -0.2, color: AppColors.text(d))),
@@ -331,8 +325,17 @@ class SqAction extends StatelessWidget {
         ink = AppColors.text2(d);
     }
 
-    final content = SizedBox(
-      height: height,
+    // A hard SizedBox(height:) with maxLines: 1 meant a label that did not fit
+    // was cut and given an ellipsis — read as "the button only shows half its
+    // text". Kazakh and Russian labels run considerably longer than the
+    // English ones the 54pt default was chosen against, and the system text
+    // scale can push any of them over.
+    //
+    // A minimum height instead of a fixed one keeps every short label exactly
+    // where it was, and lets a long one take a second line and grow the button
+    // rather than lose its words.
+    final content = ConstrainedBox(
+      constraints: BoxConstraints(minHeight: height),
       child: Row(
         mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -350,12 +353,14 @@ class SqAction extends StatelessWidget {
                   const SizedBox(width: 9),
                 ],
                 Flexible(
-                  child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2, color: ink)),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    child: Text(label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2, height: 1.2, color: ink)),
+                  ),
                 ),
                 if (trailingIcon != null) ...[
                   const SizedBox(width: 9),
@@ -693,8 +698,6 @@ class SqTile extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13.5, fontWeight: FontWeight.w800,
                     color: titleColor ?? AppColors.text(d),
@@ -703,8 +706,6 @@ class SqTile extends StatelessWidget {
                 if (subtitle != null) ...[
                   const SizedBox(height: 1),
                   Text(subtitle!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 11.5, fontWeight: FontWeight.w600,
                       color: AppColors.text3(d))),
@@ -887,8 +888,6 @@ class SqChip extends StatelessWidget {
             const SizedBox(width: 6),
           ],
           Text(label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12, fontWeight: FontWeight.w800, color: fg)),
         ],
@@ -937,8 +936,6 @@ class SqBadge extends StatelessWidget {
       child: numeric
           ? SqNum(label, size: size + 1, color: fg)
           : Text(label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: size, fontWeight: FontWeight.w800, color: fg)),
     );
@@ -1170,8 +1167,6 @@ class SqInkStat extends StatelessWidget {
         SqNum(value, size: 21, color: valueColor ?? Colors.white),
         const SizedBox(height: 2),
         Text(label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 10.5, fontWeight: FontWeight.w700,
             color: AppColors.onInk2)),
@@ -1212,8 +1207,6 @@ class SqStat extends StatelessWidget {
           SqNum(value, size: 20, color: AppColors.text(d)),
           const SizedBox(height: 2),
           Text(label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 10.5, fontWeight: FontWeight.w700,
               color: AppColors.text3(d))),
@@ -1266,8 +1259,6 @@ class SqSegmented extends StatelessWidget {
                   ),
                   child: Text(items[i],
                     textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12.5, fontWeight: FontWeight.w800,
                       color: i == index ? Colors.white : AppColors.text3(d)),
@@ -1411,8 +1402,6 @@ class SqHeader extends StatelessWidget {
                 const SizedBox(height: 1),
               ],
               Text(title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: titleSize, fontWeight: FontWeight.w800,
                   letterSpacing: -0.55,

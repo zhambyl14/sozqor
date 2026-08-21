@@ -342,8 +342,6 @@ class GuestBanner extends ConsumerWidget {
                       fontSize: 13.5, fontWeight: FontWeight.w800,
                       color: AppColors.text(d))),
                   Text(tr('Тіркел — прогресің сақталады, арена ашылады'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 11.5, fontWeight: FontWeight.w600,
                       color: AppColors.onSoft(AppColors.amber, d))),

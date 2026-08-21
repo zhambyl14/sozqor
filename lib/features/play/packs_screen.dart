@@ -173,15 +173,11 @@ class _PackCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(tr(pack.title),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 15.5, fontWeight: FontWeight.w800,
                     letterSpacing: -0.2, color: Colors.white)),
                 Text(trp('{sub} · {n} сөз',
                     {'sub': tr(pack.subtitle), 'n': '${pack.size}'}),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11.5, fontWeight: FontWeight.w600,
                     color: Colors.white.withValues(alpha: 0.72))),

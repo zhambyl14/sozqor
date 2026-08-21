@@ -1068,8 +1068,6 @@ class _Verdict extends StatelessWidget {
                       if ((detail ?? '').isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Text(detail!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12, height: 1.45,
                             fontWeight: FontWeight.w600,
@@ -1190,8 +1188,6 @@ class _ResultView extends ConsumerWidget {
                             color: AppColors.onInk2),
                           const SizedBox(height: 2),
                           Text(_headline,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 22, fontWeight: FontWeight.w800,
                               letterSpacing: -0.5, color: Colors.white)),
@@ -1285,8 +1281,6 @@ class _ResultView extends ConsumerWidget {
                             fontSize: 13.5, fontWeight: FontWeight.w800,
                             color: AppColors.text(d))),
                         Text(tr('Миссия жолында жаңа сыйлық ашылды'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11.5, fontWeight: FontWeight.w600,
                             color: AppColors.onSoft(AppColors.primary, d))),

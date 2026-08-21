@@ -126,8 +126,6 @@ class _Body extends ConsumerWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(tournament.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 17, fontWeight: FontWeight.w800,
                             letterSpacing: -0.3, color: Colors.white)),

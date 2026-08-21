@@ -485,8 +485,6 @@ class _Preview extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(en,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 22, fontWeight: FontWeight.w800,
                         letterSpacing: -0.5, color: AppColors.text(d))),
@@ -496,15 +494,11 @@ class _Preview extends StatelessWidget {
                         color: AppColors.text3(d)),
                     const SizedBox(height: 3),
                     Text(kk,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w800,
                         color: AppColors.primary)),
                     if ((ru ?? '').trim().isNotEmpty)
                       Text(ru!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 13.5, fontWeight: FontWeight.w700,
                           color: AppColors.text3(d))),
@@ -568,8 +562,6 @@ class _Preview extends StatelessWidget {
               if (source != null)
                 Flexible(
                   child: Text(_sourceText(source!),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 10.5, fontWeight: FontWeight.w600,
                       color: AppColors.text4(d))),

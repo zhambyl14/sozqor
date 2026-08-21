@@ -218,8 +218,6 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
                           children: [
                             Flexible(
                               child: Text(tr('Классикалық тест'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 16.5, fontWeight: FontWeight.w800,
                                   letterSpacing: -0.3, color: Colors.white)),
@@ -243,8 +241,6 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
                                 ? tr('базадан')
                                 : tr('өз сөздерің')
                           }),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12, fontWeight: FontWeight.w600,
                             color: AppColors.onInk2)),
@@ -375,8 +371,6 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
                         fontSize: 14, fontWeight: FontWeight.w800,
                         color: AppColors.text(d))),
                     Text(tr('Фильм · ән · IELTS · мамандық'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11.5, fontWeight: FontWeight.w600,
                         color: AppColors.onSoft(AppColors.amber, d))),
@@ -456,14 +450,10 @@ class _NewWayCard extends StatelessWidget {
           SqTintBox(icon, tint: tint, size: 38),
           const SizedBox(height: 10),
           Text(title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13.5, fontWeight: FontWeight.w800,
               color: AppColors.text(d))),
           Text(subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w600,
               color: AppColors.text3(d))),

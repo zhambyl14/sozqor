@@ -392,16 +392,12 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                           ? AppColors.text3(d) : Colors.white),
                     const SizedBox(height: 9),
                     Text(tr('Күнделікті сынақ'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13.5, fontWeight: FontWeight.w800,
                         color: playedDaily
                             ? AppColors.text(d) : Colors.white)),
                     Text(playedDaily
                         ? tr('Нәтижені көр') : tr('Әлем бір жиынтық'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11, fontWeight: FontWeight.w600,
                         color: playedDaily
@@ -449,8 +445,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                         fontSize: 13.5, fontWeight: FontWeight.w800,
                         color: AppColors.text(d))),
                     Text(tournament?.title ?? tr('24 сағат'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11, fontWeight: FontWeight.w600,
                         color: AppColors.text3(d))),
@@ -715,8 +709,6 @@ class _LeagueCard extends StatelessWidget {
                           ? tr('XP жинай баста — орның анықталады')
                           : trp('{n}-орын · {xp} XP',
                               {'n': '${me!.rank}', 'xp': '${me!.xp}'}),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11.5, fontWeight: FontWeight.w600,
                         color: AppColors.text3(d))),
@@ -809,8 +801,6 @@ class _TeamCard extends ConsumerWidget {
                       ? tr('Жүктелуде…')
                       : trp('Апталық жарыс: {done} / {goal}',
                           {'done': '${team.total}', 'goal': '${team.goal}'}),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11.5, fontWeight: FontWeight.w600,
                     color: AppColors.onSoft(AppColors.sky, d))),

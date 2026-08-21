@@ -25,6 +25,9 @@ import '../../providers.dart';
 import '../../services/meta_store.dart';
 import '../../services/push_service.dart';
 import '../auth/guest_gate.dart';
+import '../../data/repos/moderator_repo.dart';
+import '../moderator/moderator_screen.dart';
+import 'account_screen.dart';
 import 'profile_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -317,8 +320,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.w800)),
                       Text(tr(l.subtitle),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11.5, fontWeight: FontWeight.w600,
                           color: AppColors.text3(isDark(context)))),
@@ -532,8 +533,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           fontSize: 13.5, fontWeight: FontWeight.w800,
                           color: AppColors.text(d))),
                       Text(tr('Тіркел — прогресің жоғалмайды'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11.5, fontWeight: FontWeight.w600,
                           color: AppColors.onSoft(AppColors.amber, d))),
@@ -676,13 +675,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             trailing: _Value('@${p?.username ?? ''}'),
             chevron: true,
             onTap: _busy ? null : _editUsername),
-          if ((p?.phone ?? '').isNotEmpty)
-            SqTile(
-              leading: const SqTintBox(PhosphorIconsFill.phone,
-                tint: AppColors.green, size: 34),
-              title: tr('Телефон'),
-              trailing: _Value(PhoneAuthRepo.pretty(p!.phone!))),
+          // The phone used to be printed here and nothing more, which left no
+          // way at all to change a number, a password or a name from inside
+          // the app. AccountScreen handles the guest and no-number cases
+          // itself, so this row is always offered.
+          SqTile(
+            leading: const SqTintBox(PhosphorIconsFill.lock,
+              tint: AppColors.green, size: 34),
+            title: tr('Кіру деректері'),
+            subtitle: tr('Нөмір мен құпия сөз'),
+            trailing: _Value((p?.phone ?? '').isEmpty
+                ? '—' : PhoneAuthRepo.pretty(p!.phone!)),
+            chevron: true,
+            onTap: _busy ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountScreen()))),
         ]),
+
+        // Only a moderator ever sees this. amModeratorProvider reads the role
+        // off the server rather than trusting anything on the device, and the
+        // RLS policies behind every write check it again — this entrance is a
+        // convenience, not the security boundary.
+        Consumer(
+          builder: (_, ref, __) {
+            final isMod = ref.watch(amModeratorProvider).value ?? false;
+            if (!isMod) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 9),
+                    child: SqEyebrow(tr('Модератор'))),
+                  SqGroup(children: [
+                    SqTile(
+                      leading: const SqTintBox(PhosphorIconsFill.shieldCheck,
+                        tint: AppColors.primary, size: 34),
+                      title: tr('Басқару панелі'),
+                      subtitle: tr('Ивент, турнир, дүкен'),
+                      chevron: true,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ModeratorScreen()))),
+                  ]),
+                ],
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 22),
 
         // A guest never logged into anything, so "Шығу" (log out) has
@@ -713,8 +753,6 @@ class _Value extends StatelessWidget {
   Widget build(BuildContext context) => ConstrainedBox(
     constraints: const BoxConstraints(maxWidth: 150),
     child: Text(text,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
       textAlign: TextAlign.right,
       style: TextStyle(
         fontSize: 12.5, fontWeight: FontWeight.w700,

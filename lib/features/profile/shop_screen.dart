@@ -223,8 +223,6 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
                         fontSize: 14, fontWeight: FontWeight.w800,
                         color: AppColors.text(d))),
                     Text(tr('Скиндерді тегін ашудың жолы'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11.5, fontWeight: FontWeight.w600,
                         color: AppColors.onSoft(AppColors.primary, d))),

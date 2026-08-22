@@ -36,10 +36,49 @@ class ModeratorScreen extends ConsumerStatefulWidget {
 class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
   int _tab = 0;
 
+  /// Which kind of shop item is on screen, or null for all of them. The
+  /// catalogue is past sixty rows across six kinds, and one flat list of that
+  /// is not something anybody can run a shop from.
+  String? _kind;
+
   Future<void> _refresh() async {
     ref.invalidate(modEventsProvider);
     ref.invalidate(modTournamentsProvider);
     ref.invalidate(modCosmeticsProvider);
+  }
+
+  /// Pulls something out of circulation, or puts it back, without opening the
+  /// editor for it. `is_active` was reachable only from inside a form, which
+  /// is the wrong place for the one action that has to be quick: an event
+  /// that is going wrong has to come down now, not after eight fields.
+  ///
+  /// Nothing is ever deleted — `event_progress` and `user_cosmetics` point at
+  /// these rows, so removing one would erase progress somebody earned and
+  /// items they paid XP for.
+  Future<void> _setActive({
+    required String title,
+    required bool active,
+    required Future<void> Function() apply,
+    required void Function() done,
+  }) async {
+    final ok = await sqConfirm(context,
+      title: active ? tr('Қайта қосу') : tr('Тоқтату'),
+      message: active
+          ? trp('«{p1}» қайтадан көрінетін болады.', {'p1': title})
+          : trp('«{p1}» тізімнен жасырылады. Ешкімнің прогресі жойылмайды.',
+              {'p1': title}),
+      confirm: active ? tr('Қосу') : tr('Тоқтату'),
+      danger: !active);
+    if (!ok) return;
+    try {
+      await apply();
+      done();
+      if (mounted) {
+        sqSnack(context, active ? tr('Қайта қосылды') : tr('Тоқтатылды'));
+      }
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    }
   }
 
   /// Saving here changes what learners see, so the learner-facing caches are
@@ -133,8 +172,24 @@ class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
         title: e.title.isEmpty ? tr('Атаусыз') : e.title,
         subtitle: '${_range(e.cefrMin, e.cefrMax)} · '
                   '${modDate(e.startsAt)} – ${modDate(e.endsAt)}',
-        trailing: _PhaseTag(e.phase),
-        chevron: true,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PhaseTag(e.phase),
+            const SizedBox(width: 8),
+            _LiveToggle(
+              active: e.isActive,
+              onTap: e.id == null ? null : () => _setActive(
+                title: e.title,
+                active: !e.isActive,
+                apply: () => ref.read(moderatorRepoProvider)
+                    .setEventActive(e.id!, !e.isActive),
+                done: () {
+                  ref.invalidate(modEventsProvider);
+                  ref.invalidate(activeEventsProvider);
+                })),
+          ],
+        ),
         onTap: () => _openEvent(e)),
     ),
   ];
@@ -160,28 +215,81 @@ class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
   ];
 
   // ── Shop ─────────────────────────────────────────────────
-  List<Widget> _shopSection() => [
-    SqAction(tr('Жаңа зат'),
-      icon: PhosphorIconsBold.plus,
-      onTap: () => _openItem(null)),
-    const SizedBox(height: 14),
-    ..._list<ModCosmetic>(
-      ref.watch(modCosmeticsProvider),
-      empty: tr('Әзірге зат жоқ'),
-      row: (c) => SqTile(
-        leading: _Glyph(text: c.payload, color: sqHexColor(c.payload)),
-        title: (AppLang.isRu ? c.nameRu : c.nameKk).isEmpty
-            ? c.id
-            : (AppLang.isRu ? c.nameRu : c.nameKk),
-        subtitle: '${modCosmeticKindLabel(c.kind)} · ${c.price} XP · '
-                  '${modRarityLabel(c.rarity)}',
-        trailing: c.isActive
-            ? null
-            : SqBadge(tr('Тоқтатылған'), tint: AppColors.red),
-        chevron: true,
-        onTap: () => _openItem(c)),
-    ),
-  ];
+  List<Widget> _shopSection() {
+    final async = ref.watch(modCosmeticsProvider);
+    final all = async.value ?? const <ModCosmetic>[];
+    // Only kinds that actually have rows get a chip, so the strip describes
+    // the catalogue rather than the schema.
+    final kinds = [
+      for (final k in kModCosmeticKinds) if (all.any((c) => c.kind == k)) k,
+    ];
+    final shown = _kind == null
+        ? all
+        : [for (final c in all) if (c.kind == _kind) c];
+
+    return [
+      SqAction(tr('Жаңа зат'),
+        icon: PhosphorIconsBold.plus,
+        onTap: () => _openItem(null)),
+      const SizedBox(height: 14),
+      if (kinds.length > 1) ...[
+        SizedBox(
+          // Room for a 12-pt chip label at the 1.2 text-scale ceiling.
+          height: 38,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.zero,
+            children: [
+              SqChip(trp('Бәрі {n}', {'n': '${all.length}'}),
+                selected: _kind == null,
+                outlined: _kind != null,
+                radius: 999,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 9),
+                onTap: () => setState(() => _kind = null)),
+              for (final k in kinds) ...[
+                const SizedBox(width: 8),
+                SqChip('${modCosmeticKindLabel(k)} '
+                       '${all.where((c) => c.kind == k).length}',
+                  selected: _kind == k,
+                  outlined: _kind != k,
+                  radius: 999,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 9),
+                  onTap: () => setState(() => _kind = k)),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
+      ..._list<ModCosmetic>(
+        // The filter is applied to the resolved list, so loading and error
+        // still render as themselves.
+        async.whenData((_) => shown),
+        empty: tr('Әзірге зат жоқ'),
+        row: (c) => SqTile(
+          leading: _Glyph(text: c.payload, color: sqHexColor(c.payload)),
+          title: (AppLang.isRu ? c.nameRu : c.nameKk).isEmpty
+              ? c.id
+              : (AppLang.isRu ? c.nameRu : c.nameKk),
+          subtitle: '${modCosmeticKindLabel(c.kind)} · ${c.price} XP · '
+                    '${modRarityLabel(c.rarity)}',
+          trailing: _LiveToggle(
+            active: c.isActive,
+            onTap: () => _setActive(
+              title: AppLang.isRu ? c.nameRu : c.nameKk,
+              active: !c.isActive,
+              apply: () => ref.read(moderatorRepoProvider)
+                  .setCosmeticActive(c.id, !c.isActive),
+              done: () {
+                ref.invalidate(modCosmeticsProvider);
+                ref.invalidate(shopCatalogueProvider);
+              })),
+          onTap: () => _openItem(c)),
+      ),
+    ];
+  }
 
   /// One list-shaped section: placeholder, error or a group of rows.
   List<Widget> _list<T>(
@@ -236,6 +344,28 @@ class _Glyph extends StatelessWidget {
           : Text(text ?? '•', style: const TextStyle(fontSize: 17)),
     );
   }
+}
+
+/// Live / not live, as one tap.
+///
+/// It sits inside the row's own tap target, so it needs its own gesture — an
+/// inner detector wins the hit test, which is what keeps this from opening
+/// the editor instead.
+class _LiveToggle extends StatelessWidget {
+  final bool active;
+  final VoidCallback? onTap;
+  const _LiveToggle({required this.active, this.onTap});
+
+  @override
+  Widget build(BuildContext context) => SqSquareButton(
+    active ? PhosphorIconsFill.eye : PhosphorIconsFill.eyeSlash,
+    size: 32,
+    fill: AppColors.soft(
+      active ? AppColors.green : AppColors.red, isDark(context)),
+    border: Colors.transparent,
+    iconColor: active ? AppColors.greenDeep : AppColors.red,
+    onTap: onTap,
+  );
 }
 
 class _PhaseTag extends StatelessWidget {

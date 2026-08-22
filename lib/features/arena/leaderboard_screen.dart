@@ -72,7 +72,7 @@ final _boardProvider =
     LeaderboardTab.marathon   => repo.gameBoard('marathon'),
     LeaderboardTab.timeAttack => repo.gameBoard('time_attack'),
     LeaderboardTab.daily      => repo.dailyBoard(
-        ref.watch(myProfileProvider).value?.cefrLevel ?? 'A1'),
+        ref.watch(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1'),
   };
 });
 
@@ -101,10 +101,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
     final async = ref.watch(_boardProvider(tab));
     // Cosmetics arrive a moment after the board itself; an empty map simply
     // renders the plain rows until they do.
-    final worn = ref.watch(_wornProvider(tab)).value
+    final worn = ref.watch(_wornProvider(tab)).valueOrNull
         ?? const <String, WornCosmetics>{};
     final uid = currentUid;
-    final ownRow = async.value?.where((r) => r.userId == uid).firstOrNull;
+    final ownRow = async.valueOrNull?.where((r) => r.userId == uid).firstOrNull;
 
     return Scaffold(
       backgroundColor: AppColors.bg(d),

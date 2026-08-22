@@ -217,7 +217,7 @@ class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
   // ── Shop ─────────────────────────────────────────────────
   List<Widget> _shopSection() {
     final async = ref.watch(modCosmeticsProvider);
-    final all = async.value ?? const <ModCosmetic>[];
+    final all = async.valueOrNull ?? const <ModCosmetic>[];
     // Only kinds that actually have rows get a chip, so the strip describes
     // the catalogue rather than the schema.
     final kinds = [

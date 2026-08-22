@@ -43,7 +43,7 @@ const _packStyle = <String, ({Color fill, Color lip, IconData icon})>{
 /// this is what "Өз топтамаңды жаса" actually does when tapped, instead of
 /// only ever showing a passive toast.
 Future<void> _startOwnPack(BuildContext context, WidgetRef ref) async {
-  final words = ref.read(myWordsProvider).value ?? const <Word>[];
+  final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
   if (words.isEmpty) {
     sqSnack(context, tr('Алдымен сөздікке сөз қос'));
     return;
@@ -54,7 +54,7 @@ Future<void> _startOwnPack(BuildContext context, WidgetRef ref) async {
     return;
   }
   final entries = favorites.map((w) => w.toDictEntry()).toList();
-  final profile = ref.read(myProfileProvider).value;
+  final profile = ref.read(myProfileProvider).valueOrNull;
   final questions = QuestionFactory.build(
     items: favorites.map(PlayItem.fromWord).toList(),
     pool: entries,
@@ -216,10 +216,10 @@ class _PackDetailScreenState extends ConsumerState<PackDetailScreen> {
       sqSnack(context, tr('Бұл топтамада сөз жеткіліксіз'), error: true);
       return;
     }
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     const roundSize = 10;
     final owned = {
-      for (final w in ref.read(myWordsProvider).value ?? const <Word>[])
+      for (final w in ref.read(myWordsProvider).valueOrNull ?? const <Word>[])
         w.en.toLowerCase()
     };
     // Bias the round toward pack entries the learner does not own yet, so
@@ -287,7 +287,7 @@ class _PackDetailScreenState extends ConsumerState<PackDetailScreen> {
     final async = ref.watch(packPoolProvider(pack.id));
     final done = ref.watch(metaProvider).packs[pack.id] ?? 0;
     final owned = {
-      for (final w in ref.watch(myWordsProvider).value ?? const <Word>[])
+      for (final w in ref.watch(myWordsProvider).valueOrNull ?? const <Word>[])
         w.en.toLowerCase()
     };
 

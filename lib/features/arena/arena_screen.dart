@@ -51,18 +51,18 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   /// Battle rounds are built from the shared dictionary at the learner's
   /// level, so both sides always get the same fair set.
   Future<List<Question>> _buildQuestions({int count = 10}) async {
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
     final lang = profile?.nativeLang ?? 'kk';
 
-    var pool = ref.read(levelPoolProvider).value ?? const <DictEntry>[];
+    var pool = ref.read(levelPoolProvider).valueOrNull ?? const <DictEntry>[];
     if (pool.length < 12) {
       pool = await ref.read(dictRepoProvider)
           .pool(cefr: visibleCefrFor(cefr), limit: 120)
           .catchError((_) => <DictEntry>[]);
     }
 
-    final words = ref.read(myWordsProvider).value ?? const <Word>[];
+    final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
     final items = <PlayItem>[
       ...words.take(30).map(PlayItem.fromWord),
       ...pool.map(PlayItem.fromDict),
@@ -111,7 +111,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         }
         return;
       }
-      final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+      final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
       final battle = await ref.read(battleRepoProvider).createFriendBattle(
         questions: questions, cefr: cefr, targetUserId: opponentId);
       if (mounted) await _openBattle(battle);
@@ -162,7 +162,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   Future<void> _startBot() async {
     setState(() => _busy = true);
     try {
-      final profile = ref.read(myProfileProvider).value;
+      final profile = ref.read(myProfileProvider).valueOrNull;
       final cefr = profile?.cefrLevel ?? 'A1';
       final questions = await _buildQuestions();
       if (questions.length < 5) {
@@ -194,7 +194,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           if (questions.length < 5) {
             throw Exception(tr('Баттл үшін сөз жетпейді'));
           }
-          final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+          final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
           return ref.read(battleRepoProvider)
               .createFriendBattle(questions: questions, cefr: cefr);
         },
@@ -209,11 +209,11 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final profile = ref.watch(myProfileProvider).value;
-    final league = ref.watch(myLeagueProvider).value ?? const <LeagueRow>[];
-    final tournament = ref.watch(tournamentProvider).value;
-    final invites = ref.watch(pendingInvitesProvider).value ?? const <Battle>[];
-    final playedDaily = ref.watch(playedDailyProvider).value ?? false;
+    final profile = ref.watch(myProfileProvider).valueOrNull;
+    final league = ref.watch(myLeagueProvider).valueOrNull ?? const <LeagueRow>[];
+    final tournament = ref.watch(tournamentProvider).valueOrNull;
+    final invites = ref.watch(pendingInvitesProvider).valueOrNull ?? const <Battle>[];
+    final playedDaily = ref.watch(playedDailyProvider).valueOrNull ?? false;
     final myRow = league.where((r) => r.isMe).firstOrNull;
 
     final played = profile?.battlesPlayed ?? 0;
@@ -284,15 +284,20 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                   const Icon(PhosphorIconsFill.sword,
                     size: 20, color: AppColors.red),
                   const SizedBox(width: 10),
-                  Text(tr('Жекпе-жек'),
-                    style: const TextStyle(
-                      fontSize: 16.5, fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3, color: Colors.white)),
-                  const Spacer(),
-                  Text(tr('10 сұрақ · 3 мин'),
-                    style: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w700,
-                      color: AppColors.onInk2)),
+                  Flexible(
+                    child: Text(tr('Жекпе-жек'),
+                      style: const TextStyle(
+                        fontSize: 16.5, fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3, color: Colors.white)),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(tr('10 сұрақ · 3 мин'),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.w700,
+                        color: AppColors.onInk2)),
+                  ),
                 ],
               ),
               const SizedBox(height: 15),
@@ -351,8 +356,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           }),
         const SizedBox(height: 14),
 
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        SqEqualRow(
           children: [
             Expanded(
               child: SqLip(
@@ -466,7 +470,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         // now — the rows existed on the server and nothing ever showed them.
         Consumer(
           builder: (_, ref, __) {
-            final n = ref.watch(activeEventsProvider).value?.length ?? 0;
+            final n = ref.watch(activeEventsProvider).valueOrNull?.length ?? 0;
             return SqTile(
               leading: const SqTintBox(PhosphorIconsFill.confetti,
                   tint: AppColors.primary, size: 36),
@@ -539,6 +543,7 @@ class _RatingPanelState extends State<_RatingPanel> {
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -551,8 +556,9 @@ class _RatingPanelState extends State<_RatingPanel> {
                     color: AppColors.text(d)),
                 ],
               ),
-              const Spacer(),
-              Column(
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -564,6 +570,7 @@ class _RatingPanelState extends State<_RatingPanel> {
                       fontSize: 11, fontWeight: FontWeight.w600,
                       color: AppColors.text3(d))),
                 ],
+                ),
               ),
             ],
           ),
@@ -615,8 +622,7 @@ class _RatingPanelState extends State<_RatingPanel> {
                 ? const SizedBox(width: double.infinity)
                 : Padding(
                     padding: const EdgeInsets.only(top: 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                    child: SqEqualRow(
                       children: [
                         for (var i = 0; i < _steps.length; i++) ...[
                           Expanded(
@@ -769,7 +775,7 @@ class _TeamCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final d = isDark(context);
-    final team = ref.watch(teamProvider).value;
+    final team = ref.watch(teamProvider).valueOrNull;
 
     return SqPanel(
       radius: 20,
@@ -1004,7 +1010,7 @@ class _MatchmakingSheetState extends ConsumerState<_MatchmakingSheet> {
 
   Future<void> _search() async {
     final repo = ref.read(battleRepoProvider);
-    final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+    final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
 
     Future<void> attempt() async {
       if (_closing || !mounted) return;
@@ -1041,7 +1047,7 @@ class _MatchmakingSheetState extends ConsumerState<_MatchmakingSheet> {
     _closing = true;
     final repo = ref.read(battleRepoProvider);
     await repo.leaveQueue();
-    final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+    final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
     try {
       final battle = await repo.startBot(
         questions: widget.questions, cefr: cefr, bot: botFor(cefr));

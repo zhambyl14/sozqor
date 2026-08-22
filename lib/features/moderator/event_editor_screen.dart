@@ -130,7 +130,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   /// The prize is a row in `cosmetics`, so it is picked from the shop rather
   /// than typed — a mistyped id would save fine and hand out nothing.
   Future<void> _pickPrize() async {
-    final items = ref.read(modCosmeticsProvider).value ?? const <ModCosmetic>[];
+    final items = ref.read(modCosmeticsProvider).valueOrNull ?? const <ModCosmetic>[];
     final picked = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -179,7 +179,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     ref.watch(langProvider); // repaint on a language switch
     // Watched, not read: the prize sheet needs the catalogue loaded, and this
     // screen can be reached without the shop tab ever having been opened.
-    final catalogue = ref.watch(modCosmeticsProvider).value ??
+    final catalogue = ref.watch(modCosmeticsProvider).valueOrNull ??
         const <ModCosmetic>[];
 
     return SqPage(

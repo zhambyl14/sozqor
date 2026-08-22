@@ -106,10 +106,10 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
     final async = ref.watch(myWordsProvider);
-    final all = async.value ?? const <Word>[];
+    final all = async.valueOrNull ?? const <Word>[];
     final shown = _apply(all);
     final learned = all.where((w) => w.isLearned).length;
-    final due = ref.watch(dueCountProvider).value ?? 0;
+    final due = ref.watch(dueCountProvider).valueOrNull ?? 0;
     final topics = {for (final w in all) w.topic}.toList()..sort();
     final lang = ref.watch(nativeLangProvider);
 

@@ -114,8 +114,8 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
 
   /// A short round built only from this word plus decoys from the level pool.
   Future<void> _drill() async {
-    final profile = ref.read(myProfileProvider).value;
-    final pool = ref.read(levelPoolProvider).value ?? const [];
+    final profile = ref.read(myProfileProvider).valueOrNull;
+    final pool = ref.read(levelPoolProvider).valueOrNull ?? const [];
     final questions = QuestionFactory.build(
       items: [PlayItem.fromWord(_word)],
       pool: pool,
@@ -310,8 +310,7 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
         ],
 
         if (_word.synonyms.isNotEmpty || _word.antonyms.isNotEmpty) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          SqEqualRow(
             children: [
               Expanded(
                 child: _TagPanel(

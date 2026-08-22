@@ -172,17 +172,17 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
   }
 
   Future<void> _buildRound() async {
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
     final lang = profile?.nativeLang ?? 'kk';
     final kinds = widget.kinds ?? kindsFor(cefr);
 
-    final words = ref.read(myWordsProvider).value ?? const <Word>[];
+    final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
     final due = widget.mode == PlayMode.review
         ? await ref.read(wordsRepoProvider).due(limit: 40)
         : const <Word>[];
 
-    _pool = ref.read(levelPoolProvider).value ??
+    _pool = ref.read(levelPoolProvider).valueOrNull ??
         await ref.read(dictRepoProvider)
             .pool(cefr: visibleCefrFor(cefr), topic: widget.topic, limit: 150)
             .catchError((_) => <DictEntry>[]);
@@ -241,7 +241,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
     if (!(_isMarathon || _isTimeAttack)) return;
     if (_index < _questions.length - 3) return;
 
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final more = QuestionFactory.build(
       items: _items,
       pool: _pool,
@@ -371,7 +371,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
       sqSnack(context, tr('Бұл сөз әлі сөздігіңде жоқ'), error: true);
       return;
     }
-    final words = ref.read(myWordsProvider).value ?? const <Word>[];
+    final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
     final already = words.any((w) => w.id == q!.wordId && w.isFavorite);
     if (already) {
       sqSnack(context, tr('Бұл сөз таңдаулыда бар'));
@@ -453,7 +453,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
     _ticker?.cancel();
     setState(() { _finished = true; _submitting = true; });
 
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
     _levelBefore = profile?.levelNumber ?? 1;
 
@@ -504,7 +504,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
       await ref.read(eventsRepoProvider).bumpByMetric(cefr, 'rounds');
 
       refreshAll(ref);
-      final fresh = ref.read(myProfileProvider).value;
+      final fresh = ref.read(myProfileProvider).valueOrNull;
       if (fresh != null) {
         _levelAfter = fresh.levelNumber;
         _levelProgress = fresh.levelProgress;

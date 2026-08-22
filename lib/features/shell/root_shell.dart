@@ -95,7 +95,7 @@ class _RootShellState extends ConsumerState<RootShell> {
     final index = ref.watch(tabProvider).clamp(0, _screens.length - 1);
     final d = isDark(context);
     final hasInvites =
-        (ref.watch(pendingInvitesProvider).value ?? const []).isNotEmpty;
+        (ref.watch(pendingInvitesProvider).valueOrNull ?? const []).isNotEmpty;
 
     return Scaffold(
       backgroundColor: AppColors.bg(d),
@@ -105,14 +105,18 @@ class _RootShellState extends ConsumerState<RootShell> {
       // desktop browser the five tabs drift to opposite edges of the screen
       // while the content above them sits in a centred column, which reads as
       // two unrelated layouts rather than one app.
-      bottomNavigationBar: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: _NavBar(
-            index: index,
-            hasInvites: hasInvites,
-            onTap: (i) => ref.read(tabProvider.notifier).state = i,
-          ),
+      //
+      // The cap lives in SqBottomBarSlot, which carries the `heightFactor: 1`
+      // this slot cannot do without — see the note there. Written inline as a
+      // bare Center, it reported the full screen height, floated the pill
+      // halfway up the screen and collapsed the page behind it, which is what
+      // made four of the five tabs look like they scrolled their content away
+      // into nothing.
+      bottomNavigationBar: SqBottomBarSlot(
+        child: _NavBar(
+          index: index,
+          hasInvites: hasInvites,
+          onTap: (i) => ref.read(tabProvider.notifier).state = i,
         ),
       ),
     );

@@ -165,8 +165,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
         const SizedBox(height: 16),
 
         if (meta.freezes > 0 || meta.lives > 0) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          SqEqualRow(
             children: [
               Expanded(child: SqStat(
                 icon: PhosphorIconsFill.snowflake, tint: AppColors.sky,

@@ -97,7 +97,7 @@ class _Body extends ConsumerWidget {
     final board = ref.watch(tournamentBoardProvider(tournament.id));
     final uid = currentUid;
     final remaining = tournament.remaining;
-    final rows = board.value ?? const <BoardRow>[];
+    final rows = board.valueOrNull ?? const <BoardRow>[];
     final me = rows.where((r) => r.userId == uid).firstOrNull;
 
     return Column(

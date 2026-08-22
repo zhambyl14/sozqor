@@ -52,9 +52,9 @@ final shopCatalogueProvider = FutureProvider<List<Cosmetic>>((ref) {
 
 /// Colour of the frame a learner is wearing, or null when they wear none.
 final myFrameColorProvider = Provider<Color?>((ref) {
-  final id = ref.watch(myProfileProvider).value?.equippedFrame;
+  final id = ref.watch(myProfileProvider).valueOrNull?.equippedFrame;
   if (id == null || id.isEmpty) return null;
-  final items = ref.watch(shopCatalogueProvider).value ?? const <Cosmetic>[];
+  final items = ref.watch(shopCatalogueProvider).valueOrNull ?? const <Cosmetic>[];
   for (final c in items) {
     if (c.id == id) return sqHexColor(c.color);
   }
@@ -71,8 +71,8 @@ final myFrameColorProvider = Provider<Color?>((ref) {
 /// equip slots, so a badge, a banner or an aura was invisible even to the
 /// person who bought it.
 final myWornProvider = Provider<WornCosmetics>((ref) {
-  final p = ref.watch(myProfileProvider).value;
-  final items = ref.watch(shopCatalogueProvider).value ?? const <Cosmetic>[];
+  final p = ref.watch(myProfileProvider).valueOrNull;
+  final items = ref.watch(shopCatalogueProvider).valueOrNull ?? const <Cosmetic>[];
   if (p == null || items.isEmpty) return const WornCosmetics();
 
   Cosmetic? find(String id) {
@@ -101,9 +101,9 @@ final myWornProvider = Provider<WornCosmetics>((ref) {
 
 /// The title a learner is wearing, already in the interface language.
 final myTitleProvider = Provider<String?>((ref) {
-  final id = ref.watch(myProfileProvider).value?.equippedTitle;
+  final id = ref.watch(myProfileProvider).valueOrNull?.equippedTitle;
   if (id == null || id.isEmpty) return null;
-  final items = ref.watch(shopCatalogueProvider).value ?? const <Cosmetic>[];
+  final items = ref.watch(shopCatalogueProvider).valueOrNull ?? const <Cosmetic>[];
   for (final c in items) {
     if (c.id == id) return c.isDefault ? null : c.name;
   }
@@ -128,19 +128,19 @@ final myProfileProvider = FutureProvider<Profile?>((ref) async {
 
 /// Level band the learner should be shown content from.
 final visibleLevelsProvider = Provider<List<String>>((ref) {
-  final p = ref.watch(myProfileProvider).value;
+  final p = ref.watch(myProfileProvider).valueOrNull;
   return visibleCefrFor(p?.cefrLevel ?? 'A1');
 });
 
 final myKindsProvider = Provider<List<QKind>>((ref) {
-  final p = ref.watch(myProfileProvider).value;
+  final p = ref.watch(myProfileProvider).valueOrNull;
   return kindsFor(p?.cefrLevel ?? 'A1');
 });
 
 /// Which own-language side ('kk' or 'ru') the learner trains against.
 /// Deliberately separate from the interface language.
 final nativeLangProvider = Provider<String>((ref) =>
-    ref.watch(myProfileProvider).value?.nativeLang ?? 'kk');
+    ref.watch(myProfileProvider).valueOrNull?.nativeLang ?? 'kk');
 
 // ── Theme ──────────────────────────────────────────────────
 class ThemeCtrl extends StateNotifier<ThemeMode> {
@@ -215,7 +215,7 @@ final dueCountProvider = FutureProvider<int>(
 
 /// Recently added words for the home feed.
 final recentWordsProvider = Provider<List<Word>>((ref) {
-  final all = ref.watch(myWordsProvider).value ?? const <Word>[];
+  final all = ref.watch(myWordsProvider).valueOrNull ?? const <Word>[];
   return all.take(5).toList();
 });
 
@@ -235,8 +235,8 @@ class Quest {
 }
 
 final questsProvider = Provider<List<Quest>>((ref) {
-  final d = ref.watch(dailyProgressProvider).value ?? const DailyProgress();
-  final goal = ref.watch(myProfileProvider).value?.dailyGoal ?? 10;
+  final d = ref.watch(dailyProgressProvider).valueOrNull ?? const DailyProgress();
+  final goal = ref.watch(myProfileProvider).valueOrNull?.dailyGoal ?? 10;
   return [
     Quest('q_review', trp('{n} сөз қайталау', {'n': '$goal'}),
         PhosphorIconsFill.arrowsClockwise,
@@ -255,7 +255,7 @@ final weekStatsProvider = FutureProvider<List<DayStat>>(
 /// Accuracy per topic, computed from the learner's own answer history so the
 /// report never needs a second round trip.
 final topicAccuracyProvider = Provider<List<TopicScore>>((ref) {
-  final words = ref.watch(myWordsProvider).value ?? const <Word>[];
+  final words = ref.watch(myWordsProvider).valueOrNull ?? const <Word>[];
   final correct = <String, int>{};
   final tries = <String, int>{};
   for (final w in words) {
@@ -324,7 +324,7 @@ final playedDailyProvider = FutureProvider<bool>(
     (ref) => ref.watch(boardRepoProvider).playedDailyToday());
 
 final dailyBoardProvider = FutureProvider<List<BoardRow>>((ref) {
-  final cefr = ref.watch(myProfileProvider).value?.cefrLevel ?? 'A1';
+  final cefr = ref.watch(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
   return ref.watch(boardRepoProvider).dailyBoard(cefr);
 });
 
@@ -344,7 +344,7 @@ final unlockedAchievementsProvider = FutureProvider<Set<String>>(
 /// table on the server — a "clan" here is simply everybody you have added,
 /// racing a shared weekly XP goal.
 final teamProvider = FutureProvider<TeamStanding>((ref) async {
-  final me = ref.watch(myProfileProvider).value;
+  final me = ref.watch(myProfileProvider).valueOrNull;
   final board = ref.watch(boardRepoProvider);
   final friends = await board.friends();
 
@@ -393,7 +393,7 @@ class TeamStanding {
 final eventsRepoProvider = Provider((_) => EventsRepo());
 
 final activeEventsProvider = FutureProvider<List<AppEvent>>((ref) {
-  final cefr = ref.watch(myProfileProvider).value?.cefrLevel ?? 'A1';
+  final cefr = ref.watch(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
   return ref.watch(eventsRepoProvider).active(cefr);
 });
 
@@ -498,7 +498,7 @@ final metaProvider =
 /// side in `xp_spent`, so the balance survives a reinstall and cannot be
 /// edited by the device. `xp` itself is never reduced — leagues rank on it.
 final spendableXpProvider = Provider<int>((ref) =>
-    ref.watch(myProfileProvider).value?.spendableXp ?? 0);
+    ref.watch(myProfileProvider).valueOrNull?.spendableXp ?? 0);
 
 // ── Refresh helper ─────────────────────────────────────────
 /// Invalidates everything that changes after a round or a word edit.

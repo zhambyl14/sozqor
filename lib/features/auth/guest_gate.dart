@@ -59,7 +59,7 @@ extension GuestFeatureCopy on GuestFeature {
 
 /// True while the signed-in session is an anonymous guest.
 final isGuestProvider = Provider<bool>((ref) =>
-    ref.watch(myProfileProvider).value?.isGuest ?? false);
+    ref.watch(myProfileProvider).valueOrNull?.isGuest ?? false);
 
 /// Guard for a gated action. Returns true when the caller may proceed;
 /// otherwise it shows the claim sheet and returns whatever the user did.
@@ -119,7 +119,7 @@ class _ClaimSheetState extends ConsumerState<_ClaimSheet> {
   @override
   void initState() {
     super.initState();
-    final p = ref.read(myProfileProvider).value;
+    final p = ref.read(myProfileProvider).valueOrNull;
     // Compare against the raw stored default, not a UI-language translation
     // of it — the stored value is always the literal Kazakh word regardless
     // of which interface language is currently active.
@@ -170,7 +170,7 @@ class _ClaimSheetState extends ConsumerState<_ClaimSheet> {
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final p = ref.watch(myProfileProvider).value;
+    final p = ref.watch(myProfileProvider).valueOrNull;
 
     return Padding(
       padding: EdgeInsets.only(

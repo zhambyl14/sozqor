@@ -83,13 +83,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
-    final profile = ref.watch(myProfileProvider).value;
-    final words = ref.watch(myWordsProvider).value ?? const <Word>[];
-    final due = ref.watch(dueCountProvider).value ?? 0;
+    final profile = ref.watch(myProfileProvider).valueOrNull;
+    final words = ref.watch(myWordsProvider).valueOrNull ?? const <Word>[];
+    final due = ref.watch(dueCountProvider).valueOrNull ?? 0;
     final quests = ref.watch(questsProvider);
     final meta = ref.watch(metaProvider);
     final claimedQuests =
-        ref.watch(dailyProgressProvider).value?.claimed ?? const <String>[];
+        ref.watch(dailyProgressProvider).valueOrNull?.claimed ?? const <String>[];
 
     return SqPage(
       onRefresh: () async {
@@ -117,8 +117,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         const SizedBox(height: 14),
 
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        SqEqualRow(
           children: [
             Expanded(child: _ChestCard(
               meta: meta, onTap: () => _open(const ChestScreen()))),
@@ -148,8 +147,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         // Everything else the app can do lives one tap away instead of being
         // stacked onto the first screen. Three tiles, no prose.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        SqEqualRow(
           children: [
             Expanded(child: _Shortcut(
               icon: PhosphorIconsFill.path,
@@ -305,7 +303,7 @@ class _TodayPlan extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final progress = ref.watch(dailyProgressProvider).value;
+    final progress = ref.watch(dailyProgressProvider).valueOrNull;
     final reviewed = progress?.wordsReviewed ?? 0;
     final goal = (profile?.dailyGoal ?? 10).clamp(1, 500);
     final ratio = (reviewed / goal).clamp(0.0, 1.0);
@@ -403,7 +401,7 @@ class _StreakWeek extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final d = isDark(context);
-    final week = ref.watch(weekStatsProvider).value ?? const <DayStat>[];
+    final week = ref.watch(weekStatsProvider).valueOrNull ?? const <DayStat>[];
 
     return SqPanel(
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
@@ -411,12 +409,15 @@ class _StreakWeek extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(tr('Апталық серия'),
-                style: TextStyle(
-                  fontSize: 13.5, fontWeight: FontWeight.w800,
-                  color: AppColors.text(d))),
-              const Spacer(),
+              Flexible(
+                child: Text(tr('Апталық серия'),
+                  style: TextStyle(
+                    fontSize: 13.5, fontWeight: FontWeight.w800,
+                    color: AppColors.text(d))),
+              ),
+              const SizedBox(width: 10),
               SqChip(
                 freezes > 0
                     ? trp('Мұздату × {n}', {'n': '$freezes'})

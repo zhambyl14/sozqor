@@ -344,14 +344,14 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
             .catchError((_) => (0, 0, 0));
       }
 
-      final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+      final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
       await ref.read(eventsRepoProvider).bumpByMetric(cefr, 'battles');
 
       refreshAll(ref);
       ref.invalidate(battleHistoryProvider);
       ref.invalidate(pendingInvitesProvider);
 
-      final fresh = ref.read(myProfileProvider).value;
+      final fresh = ref.read(myProfileProvider).valueOrNull;
       if (fresh != null) {
         _unlocked = await AchievementService.instance.check(fresh);
       }
@@ -408,7 +408,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   @override
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
-    final me = ref.watch(myProfileProvider).value;
+    final me = ref.watch(myProfileProvider).valueOrNull;
 
     return PopScope(
       canPop: _finished,
@@ -854,7 +854,7 @@ class _BattleResult extends ConsumerWidget {
     final delta = battle.myEloDelta(uid);
     // The profile has already been refreshed by the time the result shows, so
     // its Elo is the "after" number and the "before" is that minus the delta.
-    final eloAfter = ref.watch(myProfileProvider).value?.elo ?? 1000;
+    final eloAfter = ref.watch(myProfileProvider).valueOrNull?.elo ?? 1000;
     final eloBefore = eloAfter - delta;
     final tint = !oppFinished
         ? AppColors.amber

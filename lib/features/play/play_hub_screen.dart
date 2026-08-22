@@ -64,13 +64,13 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final profile = ref.watch(myProfileProvider).value;
+    final profile = ref.watch(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
     final available = kindsFor(cefr);
     final locked = QKind.values.where((k) => !available.contains(k)).toList();
-    final words = ref.watch(myWordsProvider).value ?? const <Word>[];
-    final due = ref.watch(dueCountProvider).value ?? 0;
-    final playedDaily = ref.watch(playedDailyProvider).value ?? false;
+    final words = ref.watch(myWordsProvider).valueOrNull ?? const <Word>[];
+    final due = ref.watch(dueCountProvider).valueOrNull ?? 0;
+    final playedDaily = ref.watch(playedDailyProvider).valueOrNull ?? false;
 
     return SqPage(
       onRefresh: () async {
@@ -326,8 +326,7 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
         Padding(
           padding: const EdgeInsets.only(left: 2, bottom: 10),
           child: SqEyebrow(tr('Жаңа тәсілдер'))),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        SqEqualRow(
           children: [
             Expanded(
               child: _NewWayCard(

@@ -67,8 +67,8 @@ class EventsScreen extends ConsumerWidget {
                 for (final e in list) ...[
                   _EventCard(
                     event: e,
-                    progress: progress.value?[e.id],
-                    onTap: () => _openDetail(context, e, progress.value?[e.id]),
+                    progress: progress.valueOrNull?[e.id],
+                    onTap: () => _openDetail(context, e, progress.valueOrNull?[e.id]),
                   ),
                   const SizedBox(height: 10),
                 ],

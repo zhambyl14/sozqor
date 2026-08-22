@@ -50,7 +50,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   Future<void> _editName() async {
     final ctrl = TextEditingController(
-      text: ref.read(myProfileProvider).value?.displayName ?? '');
+      text: ref.read(myProfileProvider).valueOrNull?.displayName ?? '');
     // Built per call rather than held as a field, so it has to be released
     // per call too — otherwise every visit to the rename dialog leaks one.
     try {
@@ -89,7 +89,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   /// cancelled dialog then costs nothing, while a spent code costs another
   /// trip through Telegram.
   Future<void> _changePassword() async {
-    final phone = ref.read(myProfileProvider).value?.phone ?? '';
+    final phone = ref.read(myProfileProvider).valueOrNull?.phone ?? '';
     if (phone.isEmpty) return;
 
     final pwd = await showDialog<String>(
@@ -107,7 +107,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }
 
   Future<void> _changePhone() async {
-    final p = ref.read(myProfileProvider).value;
+    final p = ref.read(myProfileProvider).valueOrNull;
     final current = p?.phone ?? '';
 
     final input = await showDialog<(String, String)>(
@@ -165,7 +165,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final p = ref.watch(myProfileProvider).value;
+    final p = ref.watch(myProfileProvider).valueOrNull;
     final phone = p?.phone ?? '';
     final hasPhone = phone.isNotEmpty;
     final name = (p?.displayName ?? '').trim();

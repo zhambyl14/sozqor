@@ -46,7 +46,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    final p = ref.read(myProfileProvider).value;
+    final p = ref.read(myProfileProvider).valueOrNull;
     if (p != null) {
       _name.text = p.displayName.trim().isEmpty ? '' : p.displayName;
       _lang = p.nativeLang;

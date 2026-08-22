@@ -102,7 +102,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+      final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
 
       // Who said which line matters as much as the lines themselves. The edge
       // function pastes these into the prompt under "Conversation so far", and
@@ -143,7 +143,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   /// the one worth offering to save.
   String? _pickNewWord(String reply) {
     final owned = {
-      for (final w in ref.read(myWordsProvider).value ?? const <Word>[])
+      for (final w in ref.read(myWordsProvider).valueOrNull ?? const <Word>[])
         w.en.toLowerCase()
     };
     final candidates = reply
@@ -191,7 +191,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final cefr = ref.watch(myProfileProvider).value?.cefrLevel ?? 'A1';
+    final cefr = ref.watch(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
 
     return Scaffold(
       backgroundColor: AppColors.bg(d),

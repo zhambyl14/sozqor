@@ -62,7 +62,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
   /// Shares the learner's own @username so a friend can find them the same
   /// way this screen finds others.
   Future<void> _shareUsername() async {
-    final username = ref.read(myProfileProvider).value?.username ?? '';
+    final username = ref.read(myProfileProvider).valueOrNull?.username ?? '';
     if (username.isEmpty) return;
     await Share.share(trp('Мені SozQor-да @{p1} деп тап', {'p1': username}));
   }
@@ -138,18 +138,18 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
   /// level, mirroring ArenaScreen's own question set so a direct friend
   /// challenge is exactly as fair as the code-based one.
   Future<List<Question>> _buildQuestions() async {
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
     final lang = profile?.nativeLang ?? 'kk';
 
-    var pool = ref.read(levelPoolProvider).value ?? const <DictEntry>[];
+    var pool = ref.read(levelPoolProvider).valueOrNull ?? const <DictEntry>[];
     if (pool.length < 12) {
       pool = await ref.read(dictRepoProvider)
           .pool(cefr: visibleCefrFor(cefr), limit: 120)
           .catchError((_) => <DictEntry>[]);
     }
 
-    final words = ref.read(myWordsProvider).value ?? const <Word>[];
+    final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
     final items = <PlayItem>[
       ...words.take(30).map(PlayItem.fromWord),
       ...pool.map(PlayItem.fromDict),
@@ -171,7 +171,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
       if (questions.length < 5) {
         throw Exception(tr('Баттл үшін сөз жетпейді'));
       }
-      final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+      final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
       final battle = await ref.read(battleRepoProvider).createFriendBattle(
         questions: questions, cefr: cefr, targetUserId: row.userId);
       if (mounted) await _play(battle);
@@ -188,14 +188,14 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     final d = isDark(context);
     final friends = ref.watch(friendsProvider);
     final worn = {
-      ...ref.watch(_friendsWornProvider).value ?? const <String, WornCosmetics>{},
+      ...ref.watch(_friendsWornProvider).valueOrNull ?? const <String, WornCosmetics>{},
       ..._resultWorn,
     };
-    final invites = ref.watch(pendingInvitesProvider).value ?? const <Battle>[];
+    final invites = ref.watch(pendingInvitesProvider).valueOrNull ?? const <Battle>[];
     final friendIds = {
-      for (final f in friends.value ?? const <BoardRow>[]) f.userId
+      for (final f in friends.valueOrNull ?? const <BoardRow>[]) f.userId
     };
-    final list = friends.value ?? const <BoardRow>[];
+    final list = friends.valueOrNull ?? const <BoardRow>[];
 
     return SqPage(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
@@ -352,7 +352,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
         // is not showing its own answer.
         if (_results.isEmpty && !_searching) ...[
           ...(() {
-            final all = ref.watch(_suggestedProvider).value
+            final all = ref.watch(_suggestedProvider).valueOrNull
                 ?? const <BoardRow>[];
             final fresh = [
               for (final r in all) if (!friendIds.contains(r.userId)) r,

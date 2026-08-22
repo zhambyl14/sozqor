@@ -187,7 +187,7 @@ class _AddWordScreenState extends ConsumerState<AddWordScreen> {
           dictionaryId: _found?.id,
         );
         await ref.read(profileRepoProvider).bumpWordsAdded();
-        final cefr = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+        final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
         await ref.read(eventsRepoProvider).bumpByMetric(cefr, 'words');
       }
 

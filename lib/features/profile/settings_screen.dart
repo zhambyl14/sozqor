@@ -187,7 +187,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
 
   Future<void> _editName() async {
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final ctrl = TextEditingController(text: profile?.displayName ?? '');
     final value = await showDialog<String>(
       context: context,
@@ -214,7 +214,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _editUsername() async {
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     final ctrl = TextEditingController(text: profile?.username ?? '');
     final value = await showDialog<String>(
       context: context,
@@ -296,7 +296,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pickLevel() async {
-    final current = ref.read(myProfileProvider).value?.cefrLevel ?? 'A1';
+    final current = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
     final chosen = await _sheet<String>(tr('Деңгейді өзгерту'), [
       for (final l in kCefrLevels)
         Padding(
@@ -342,7 +342,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _pickGoal() async {
-    final current = ref.read(myProfileProvider).value?.dailyGoal ?? 10;
+    final current = ref.read(myProfileProvider).valueOrNull?.dailyGoal ?? 10;
     final chosen = await _sheet<int>(tr('Күнделікті мақсат'), [
       for (final g in [5, 10, 20, 30, 50])
         Padding(
@@ -497,7 +497,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final d = isDark(context);
     final lang = ref.watch(langProvider);
-    final p = ref.watch(myProfileProvider).value;
+    final p = ref.watch(myProfileProvider).valueOrNull;
     final meta = ref.watch(metaProvider);
 
     return SqPage(
@@ -698,7 +698,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         // convenience, not the security boundary.
         Consumer(
           builder: (_, ref, __) {
-            final isMod = ref.watch(amModeratorProvider).value ?? false;
+            final isMod = ref.watch(amModeratorProvider).valueOrNull ?? false;
             if (!isMod) return const SizedBox.shrink();
             return Padding(
               padding: const EdgeInsets.only(top: 22),

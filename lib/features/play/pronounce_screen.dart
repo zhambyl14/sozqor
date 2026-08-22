@@ -162,8 +162,8 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
   }
 
   void _build() {
-    final words = ref.read(myWordsProvider).value ?? const <Word>[];
-    final pool = ref.read(levelPoolProvider).value ?? const <DictEntry>[];
+    final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
+    final pool = ref.read(levelPoolProvider).valueOrNull ?? const <DictEntry>[];
 
     final items = <_Item>[];
     if (widget.only != null) {

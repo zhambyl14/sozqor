@@ -47,7 +47,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   @override
   void initState() {
     super.initState();
-    final profile = ref.read(myProfileProvider).value;
+    final profile = ref.read(myProfileProvider).valueOrNull;
     _level = profile?.cefrLevel ?? 'A1';
     _levelFromFallback = profile == null;
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
@@ -153,7 +153,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
     // _level locks to the 'A1' fallback — once the real level arrives, adopt
     // it, but only if the learner has not since picked a level chip herself.
     ref.listen(myProfileProvider, (prev, next) {
-      final lvl = next.value?.cefrLevel;
+      final lvl = next.valueOrNull?.cefrLevel;
       if (_levelFromFallback && lvl != null && lvl != _level) {
         setState(() { _level = lvl; _levelFromFallback = false; });
         _load();
@@ -161,10 +161,10 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
     });
     final d = isDark(context);
     final owned = {
-      for (final w in ref.watch(myWordsProvider).value ?? const <Word>[])
+      for (final w in ref.watch(myWordsProvider).valueOrNull ?? const <Word>[])
         w.en.toLowerCase()
     };
-    final myLevel = ref.watch(myProfileProvider).value?.cefrLevel ?? 'A1';
+    final myLevel = ref.watch(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
     final allowed = visibleCefrFor(myLevel);
     final lang = ref.watch(nativeLangProvider);
 

@@ -889,17 +889,30 @@ class SqChip extends StatelessWidget {
         border: Border.all(
           color: edge, width: selected && !onInk ? 1.5 : 1),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: fg),
-            const SizedBox(width: 6),
-          ],
-          Text(label,
+      // A chip label has to be able to wrap. Kazakh and Russian labels run
+      // long, the app allows text up to 1.2×, and a chip that cannot reflow
+      // simply runs off the row it sits in — which is content nobody can see.
+      //
+      // Which is why this is a LayoutBuilder and not a plain Flexible: chips
+      // also live in horizontal lists, and there the width arrives unbounded,
+      // where a flex child is not allowed at all. Bounded means "on a page,
+      // let it wrap"; unbounded means "in a strip, take your natural size".
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final text = Text(label,
             style: TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w800, color: fg)),
-        ],
+              fontSize: 12, fontWeight: FontWeight.w800, color: fg));
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: fg),
+                const SizedBox(width: 6),
+              ],
+              if (box.maxWidth.isFinite) Flexible(child: text) else text,
+            ],
+          );
+        },
       ),
     );
 
@@ -1488,6 +1501,71 @@ class SqPage extends StatelessWidget {
 /// Wide enough for a large phone held in landscape, narrow enough that a
 /// desktop window does not spread a phone layout across the whole screen.
 const double _pageMaxWidth = 560;
+
+/// A row of cards that all take the height of the tallest one.
+///
+/// This is `Row(crossAxisAlignment: CrossAxisAlignment.stretch)` with the one
+/// thing that makes it legal inside a scroll view. A stretching Row hands its
+/// children a *tight* cross-axis constraint taken from its own — and a direct
+/// child of a ListView is given an unbounded height, so the children were
+/// being laid out at infinity.
+///
+/// In a debug build that trips an assert. In a release build asserts are
+/// stripped, so it silently produced an infinitely tall row: the page's scroll
+/// extent went to infinity, and scrolling carried the content up and away with
+/// no end and nothing to come back to. Four of the five tabs were built this
+/// way — every one that pairs two stat cards side by side — and the fifth,
+/// the word bank, was the only one that never did.
+///
+/// [IntrinsicHeight] bounds the row at the tallest child's natural height,
+/// which is what "two cards, same height" meant in the first place.
+class SqEqualRow extends StatelessWidget {
+  final List<Widget> children;
+  final MainAxisAlignment mainAxisAlignment;
+
+  const SqEqualRow({
+    super.key,
+    required this.children,
+    this.mainAxisAlignment = MainAxisAlignment.start,
+  });
+
+  @override
+  Widget build(BuildContext context) => IntrinsicHeight(
+    // The one place in the app that is allowed to stretch a Row: here the
+    // IntrinsicHeight above it has already bounded the cross axis.
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisAlignment: mainAxisAlignment,
+      children: children,
+    ),
+  );
+}
+
+/// Caps and centres whatever a [Scaffold] puts in its `bottomNavigationBar`,
+/// to the same width [SqPage] caps its content at.
+///
+/// The `heightFactor: 1` is the whole reason this is a widget rather than a
+/// `Center` written inline. An [Align] only shrink-wraps an axis when it is
+/// given a factor for it, or when the constraint on that axis is unbounded —
+/// and the bottom-bar slot is measured with a bounded height, so a bare
+/// [Center] there reports the full screen height. Scaffold uses that height
+/// to decide where the body ends, so the bar floats its contents halfway up
+/// the screen and collapses the page behind it. It looks exactly like every
+/// tab losing its content, and it is one missing argument.
+class SqBottomBarSlot extends StatelessWidget {
+  final Widget child;
+  const SqBottomBarSlot({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.bottomCenter,
+    heightFactor: 1,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: _pageMaxWidth),
+      child: child,
+    ),
+  );
+}
 
 /// A column that fills the viewport when it fits and scrolls when it does not.
 ///

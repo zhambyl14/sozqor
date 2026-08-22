@@ -60,9 +60,9 @@ class AchievementsScreen extends ConsumerWidget {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
     final unlocked =
-        ref.watch(unlockedAchievementsProvider).value ?? const <String>{};
-    final profile = ref.watch(myProfileProvider).value;
-    final marathonBest = ref.watch(_marathonBestProvider).value ?? 0;
+        ref.watch(unlockedAchievementsProvider).valueOrNull ?? const <String>{};
+    final profile = ref.watch(myProfileProvider).valueOrNull;
+    final marathonBest = ref.watch(_marathonBestProvider).valueOrNull ?? 0;
 
     final progress = profile == null
         ? <String, int>{}
@@ -173,8 +173,7 @@ class _Grid extends StatelessWidget {
   Widget build(BuildContext context) {
     final rows = <Widget>[];
     for (var i = 0; i < items.length; i += 2) {
-      rows.add(Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      rows.add(SqEqualRow(
         children: [
           Expanded(child: _Badge(
             achievement: items[i],

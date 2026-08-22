@@ -24,7 +24,7 @@ class MissionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final xp = ref.watch(myProfileProvider).value?.xp ?? 0;
+    final xp = ref.watch(myProfileProvider).valueOrNull?.xp ?? 0;
     final meta = ref.watch(metaProvider);
     final level = passLevelFor(xp);
     final claimed = meta.passClaimed;

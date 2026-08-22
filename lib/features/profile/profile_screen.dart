@@ -44,10 +44,10 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final profile = ref.watch(myProfileProvider).value;
-    final words = ref.watch(myWordsProvider).value ?? const <Word>[];
+    final profile = ref.watch(myProfileProvider).valueOrNull;
+    final words = ref.watch(myWordsProvider).valueOrNull ?? const <Word>[];
     final unlocked =
-        ref.watch(unlockedAchievementsProvider).value ?? const <String>{};
+        ref.watch(unlockedAchievementsProvider).valueOrNull ?? const <String>{};
     final spendable = ref.watch(spendableXpProvider);
     final frameColor = ref.watch(myFrameColorProvider);
     final title = ref.watch(myTitleProvider);
@@ -185,15 +185,19 @@ class ProfileScreen extends ConsumerWidget {
                       ]),
                     const SizedBox(height: 16),
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         SqNum('LVL ${profile?.levelNumber ?? 1}',
                           size: 12, color: AppColors.text(d)),
-                        const Spacer(),
-                        Text(trp('келесі деңгейге {xp} XP',
-                            {'xp': '${profile?.xpToNextLevel ?? 100}'}),
-                          style: TextStyle(
-                            fontSize: 11, fontWeight: FontWeight.w700,
-                            color: AppColors.text3(d))),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(trp('келесі деңгейге {xp} XP',
+                              {'xp': '${profile?.xpToNextLevel ?? 100}'}),
+                            textAlign: TextAlign.end,
+                            style: TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w700,
+                              color: AppColors.text3(d))),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 7),
@@ -206,8 +210,7 @@ class ProfileScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 14),
 
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        SqEqualRow(
           children: [
             Expanded(child: SqStat(
               icon: PhosphorIconsFill.books, tint: AppColors.primary,
@@ -221,8 +224,7 @@ class ProfileScreen extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 9),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        SqEqualRow(
           children: [
             Expanded(child: SqStat(
               icon: PhosphorIconsFill.fire, tint: AppColors.amber,

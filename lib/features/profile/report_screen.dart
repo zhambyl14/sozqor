@@ -36,7 +36,7 @@ class ReportScreen extends ConsumerWidget {
     final async = ref.watch(weekStatsProvider);
     final topics = ref.watch(topicAccuracyProvider);
     final strongest = topics.take(5).toList();
-    final profile = ref.watch(myProfileProvider).value;
+    final profile = ref.watch(myProfileProvider).valueOrNull;
 
     return SqPage(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
@@ -79,6 +79,7 @@ class ReportScreen extends ConsumerWidget {
                     children: [
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,8 +94,9 @@ class ReportScreen extends ConsumerWidget {
                                   color: AppColors.text3(d))),
                             ],
                           ),
-                          const Spacer(),
-                          Container(
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
@@ -113,14 +115,20 @@ class ReportScreen extends ConsumerWidget {
                                   color: active >= 4
                                       ? AppColors.greenDeep : AppColors.amber),
                                 const SizedBox(width: 5),
-                                Text(trp('{p1} / 7 күн белсенді', {'p1': '$active'}),
-                                  style: TextStyle(
-                                    fontSize: 11.5, fontWeight: FontWeight.w800,
-                                    color: AppColors.onSoft(
-                                      active >= 4
-                                          ? AppColors.green : AppColors.amber,
-                                      d))),
+                                Flexible(
+                                  child: Text(
+                                    trp('{p1} / 7 күн белсенді',
+                                        {'p1': '$active'}),
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.onSoft(
+                                        active >= 4
+                                            ? AppColors.green : AppColors.amber,
+                                        d))),
+                                ),
                               ],
+                            ),
                             ),
                           ),
                         ],
@@ -145,8 +153,7 @@ class ReportScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 14),
 
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                SqEqualRow(
                   children: [
                     Expanded(child: SqStat(
                       icon: PhosphorIconsFill.arrowsClockwise,

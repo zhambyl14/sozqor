@@ -19,6 +19,7 @@ import '../../data/repos/board_repo.dart';
 import '../../data/repos/cosmetics_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../profile/worn_avatar.dart';
 
 enum LeaderboardTab { week, allTime, elo, marathon, timeAttack, daily }
 
@@ -311,23 +312,14 @@ class _BoardTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
-    final frame = sqHexColor(worn?.frameColor);
     final title = worn?.title;
 
-    Widget avatar = SqAvatar(row.name,
-      size: frame == null ? 34 : 30,
-      tint: isMe ? AppColors.primary : null,
-      solid: isMe);
-    if (frame != null) {
-      avatar = Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(color: frame, shape: BoxShape.circle),
-        child: avatar,
-      );
-    }
-
     return SqTile(
-      fill: isMe ? AppColors.soft(AppColors.primary, d) : null,
+      // Your own row still wins: the brand tint beats anybody's banner, so
+      // "where am I" never gets harder to answer as more people buy one.
+      fill: isMe
+          ? AppColors.soft(AppColors.primary, d)
+          : wornRowFill(worn, d),
       leading: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -335,7 +327,7 @@ class _BoardTile extends StatelessWidget {
             child: SqNum('${row.rank}',
               size: 13, color: AppColors.text4(d))),
           const SizedBox(width: 8),
-          avatar,
+          WornAvatar(name: row.name, worn: worn, size: 34, isMe: isMe),
         ],
       ),
       title: isMe ? trp('{name} (сен)', {'name': row.name}) : row.name,

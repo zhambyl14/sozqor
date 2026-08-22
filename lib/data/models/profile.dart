@@ -16,7 +16,13 @@ class Profile {
 
   /// Cosmetics the learner is wearing. Empty means "nothing equipped" — the
   /// id of a row in `cosmetics`, not a colour or a label.
-  final String equippedFrame, equippedTitle;
+  ///
+  /// All six slots, because `equip_cosmetic` writes all six and the shop
+  /// sells all six. Carrying only the first two is what made a banner, a
+  /// badge or an aura invisible the moment it was bought: the row said what
+  /// was worn and nothing on the client ever read it.
+  final String equippedFrame, equippedTitle, equippedAvatar;
+  final String equippedBanner, equippedBadge, equippedAura;
 
   /// XP already spent in the shop. `xp` itself is never reduced, because
   /// leagues and leaderboards rank on lifetime XP — the shop budget is
@@ -48,8 +54,12 @@ class Profile {
     this.notifEnabled  = true,
     this.dailyGoal     = 10,
     this.lastActive,
-    this.equippedFrame = '',
-    this.equippedTitle = '',
+    this.equippedFrame  = '',
+    this.equippedTitle  = '',
+    this.equippedAvatar = '',
+    this.equippedBanner = '',
+    this.equippedBadge  = '',
+    this.equippedAura   = '',
     this.xpSpent       = 0,
   });
 
@@ -80,8 +90,12 @@ class Profile {
     lastActive:    m['last_active'] == null
         ? null : DateTime.tryParse(m['last_active'].toString()),
     // Nullable columns: a learner who never equipped anything has NULL here.
-    equippedFrame: (m['equipped_frame'] ?? '').toString(),
-    equippedTitle: (m['equipped_title'] ?? '').toString(),
+    equippedFrame:  (m['equipped_frame'] ?? '').toString(),
+    equippedTitle:  (m['equipped_title'] ?? '').toString(),
+    equippedAvatar: (m['equipped_avatar'] ?? '').toString(),
+    equippedBanner: (m['equipped_banner'] ?? '').toString(),
+    equippedBadge:  (m['equipped_badge'] ?? '').toString(),
+    equippedAura:   (m['equipped_aura'] ?? '').toString(),
     xpSpent:       ((m['xp_spent'] ?? 0) as num).toInt(),
   );
 
@@ -140,7 +154,9 @@ class Profile {
     String? uiLang, String? nativeLang,
     bool? onboarded, bool? darkMode, bool? notifEnabled, int? dailyGoal,
     int? xp, int? streak,
-    String? equippedFrame, String? equippedTitle, int? xpSpent,
+    String? equippedFrame, String? equippedTitle, String? equippedAvatar,
+    String? equippedBanner, String? equippedBadge, String? equippedAura,
+    int? xpSpent,
   }) => Profile(
     id: id, username: username,
     displayName:   displayName  ?? this.displayName,
@@ -165,8 +181,12 @@ class Profile {
     notifEnabled:  notifEnabled ?? this.notifEnabled,
     dailyGoal:     dailyGoal    ?? this.dailyGoal,
     lastActive:    lastActive,
-    equippedFrame: equippedFrame ?? this.equippedFrame,
-    equippedTitle: equippedTitle ?? this.equippedTitle,
+    equippedFrame:  equippedFrame  ?? this.equippedFrame,
+    equippedTitle:  equippedTitle  ?? this.equippedTitle,
+    equippedAvatar: equippedAvatar ?? this.equippedAvatar,
+    equippedBanner: equippedBanner ?? this.equippedBanner,
+    equippedBadge:  equippedBadge  ?? this.equippedBadge,
+    equippedAura:   equippedAura   ?? this.equippedAura,
     xpSpent:       xpSpent       ?? this.xpSpent,
   );
 }

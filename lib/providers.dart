@@ -61,6 +61,44 @@ final myFrameColorProvider = Provider<Color?>((ref) {
   return null;
 });
 
+/// Everything *this* learner is wearing, in the same shape used to render
+/// anybody else on a board.
+///
+/// Assembled from the catalogue rather than fetched again — the shop response
+/// already carries every id, colour and emoji, and the catalogue is the only
+/// place that id → payload mapping exists, since it lives server-side so new
+/// items ship without an app release. Before this the app read two of the six
+/// equip slots, so a badge, a banner or an aura was invisible even to the
+/// person who bought it.
+final myWornProvider = Provider<WornCosmetics>((ref) {
+  final p = ref.watch(myProfileProvider).value;
+  final items = ref.watch(shopCatalogueProvider).value ?? const <Cosmetic>[];
+  if (p == null || items.isEmpty) return const WornCosmetics();
+
+  Cosmetic? find(String id) {
+    if (id.isEmpty) return null;
+    for (final c in items) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  // The free default of each kind is the "wearing nothing" option, so it must
+  // not render as a title or paint a banner.
+  final title = find(p.equippedTitle);
+  final worn = title == null || title.isDefault ? null : title;
+
+  return WornCosmetics(
+    frameId:     p.equippedFrame.isEmpty ? null : p.equippedFrame,
+    frameColor:  find(p.equippedFrame)?.color,
+    titleKk:     worn?.nameKk,
+    titleRu:     worn?.nameRu,
+    bannerColor: find(p.equippedBanner)?.color,
+    badgeEmoji:  find(p.equippedBadge)?.emoji,
+    auraColor:   find(p.equippedAura)?.color,
+  );
+});
+
 /// The title a learner is wearing, already in the interface language.
 final myTitleProvider = Provider<String?>((ref) {
   final id = ref.watch(myProfileProvider).value?.equippedTitle;

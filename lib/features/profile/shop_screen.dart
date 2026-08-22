@@ -10,6 +10,13 @@
 // so it can grow without a release — which is also why an item renders from
 // its own data (a hex colour, an emoji) instead of a switch over known ids.
 //
+// All six kinds are shelved here. Three of them — banners, badges and auras —
+// used to fall through the client's three-value enum and land in the avatar
+// section drawn as a blank 🙂, which is a third of the shop mislabelled and
+// unrecognisable. With sixty-odd items the shelf also needs a way in, so the
+// kinds are a filter across the top and what is currently worn sits above
+// them: the two questions anybody opening a shop actually has.
+//
 // Buying spends against `xp_spent`, never against `xp` itself: leagues and
 // leaderboards rank on total XP, so letting a cosmetic eat it would quietly
 // cost the learner a place in a competition they did not know they were
@@ -58,6 +65,9 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
   /// The item currently being bought or equipped, so its own row can show the
   /// wait instead of freezing the whole page.
   String? _busyId;
+
+  /// Which shelf is open, or null for the whole catalogue.
+  CosmeticKind? _kind;
 
   Future<void> _run(String itemId, Future<void> Function() action) async {
     if (_busyId != null) return;
@@ -185,16 +195,30 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
                 title: tr('Дүкен әзірге бос'),
                 subtitle: tr('Жақында жаңа заттар қосылады'));
             }
+            // Only kinds the server actually stocks get a shelf, so retiring
+            // every banner leaves no empty "Баннерлер" heading behind.
+            final kinds = [
+              for (final k in CosmeticKind.values)
+                if (items.any((c) => c.kind == k)) k,
+            ];
+            final open = _kind != null && kinds.contains(_kind)
+                ? [_kind!] : kinds;
+
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final group in [
-                  (CosmeticKind.frame,  tr('Аватар жиектері')),
-                  (CosmeticKind.title,  tr('Атақтар')),
-                  (CosmeticKind.avatar, tr('Аватарлар')),
-                ]) ...[
-                  ..._section(items, group.$1, group.$2, spendable),
-                ],
+                _Wearing(items: items),
+                _KindFilter(
+                  kinds: kinds,
+                  selected: kinds.contains(_kind) ? _kind : null,
+                  ownedOf: (k) => items
+                      .where((c) => c.kind == k && (c.owned || c.isDefault))
+                      .length,
+                  totalOf: (k) => items.where((c) => c.kind == k).length,
+                  onPick: (k) => setState(() => _kind = k)),
+                const SizedBox(height: 18),
+                for (final k in open)
+                  ..._section(items, k, cosmeticKindLabel(k), spendable),
               ],
             );
           },
@@ -332,38 +356,11 @@ class _CosmeticRow extends StatelessWidget {
     required this.busy,
     required this.onTap});
 
-  /// Every item previews the thing it actually is: a frame shows its ring in
-  /// its real colour, an avatar shows its character, a title shows its text.
-  Widget _preview(BuildContext context) {
-    final d = isDark(context);
-    switch (item.kind) {
-      case CosmeticKind.frame:
-        final color = sqHexColor(item.color) ?? AppColors.text4(d);
-        return Container(
-          width: 40, height: 40,
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: color, shape: BoxShape.circle),
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.card(d), shape: BoxShape.circle),
-          ),
-        );
-      case CosmeticKind.avatar:
-        return Container(
-          width: 40, height: 40,
-          decoration: BoxDecoration(
-            color: AppColors.muted(d),
-            borderRadius: BorderRadius.circular(13)),
-          alignment: Alignment.center,
-          child: Text(item.emoji ?? '🙂',
-            style: const TextStyle(fontSize: 21)),
-        );
-      case CosmeticKind.title:
-        return SqTintBox(PhosphorIconsFill.sealCheck,
-          tint: _rarity(item.rarity).tint, size: 40);
-    }
-  }
+  /// Every item previews the thing it actually is, from its own payload: a
+  /// frame shows its ring, a banner its stripe, an aura its glow, a badge and
+  /// an avatar their character. Nothing here switches over known ids, so an
+  /// item the moderator adds tonight draws itself correctly tomorrow.
+  Widget _preview(BuildContext context) => cosmeticPreview(context, item);
 
   @override
   Widget build(BuildContext context) {
@@ -428,4 +425,200 @@ class _CosmeticRow extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The swatch a cosmetic is recognised by. Shared with the "wearing now"
+/// strip so an item never looks like two different things.
+Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 40}) {
+  final d = isDark(context);
+  final color = sqHexColor(item.color);
+
+  switch (item.kind) {
+    case CosmeticKind.frame:
+      return Container(
+        width: size, height: size,
+        padding: EdgeInsets.all(size * 0.075),
+        decoration: BoxDecoration(
+          color: color ?? AppColors.muted(d), shape: BoxShape.circle),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.card(d), shape: BoxShape.circle)),
+      );
+
+    case CosmeticKind.avatar:
+      return Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          color: AppColors.muted(d),
+          borderRadius: BorderRadius.circular(size * 0.33)),
+        alignment: Alignment.center,
+        child: Text(item.emoji ?? '🙂',
+          style: TextStyle(fontSize: size * 0.52)),
+      );
+
+    case CosmeticKind.badge:
+      // A badge rides next to a name at a fraction of this size, so it is
+      // previewed on a disc of its own rather than free-floating.
+      return Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          color: AppColors.soft(_rarity(item.rarity).tint, d),
+          shape: BoxShape.circle),
+        alignment: Alignment.center,
+        child: Text(item.emoji ?? '•',
+          style: TextStyle(fontSize: size * 0.45)),
+      );
+
+    case CosmeticKind.banner:
+      // A banner is a wide strip behind a name, so the preview is that strip.
+      return Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          color: AppColors.muted(d),
+          borderRadius: BorderRadius.circular(size * 0.28)),
+        clipBehavior: Clip.antiAlias,
+        alignment: Alignment.center,
+        child: Container(
+          height: size * 0.5,
+          decoration: BoxDecoration(
+            gradient: color == null
+                ? null
+                : LinearGradient(
+                    colors: [color, color.withValues(alpha: 0.45)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight),
+            color: color == null ? AppColors.text4(d) : null),
+        ),
+      );
+
+    case CosmeticKind.aura:
+      // An aura is light around an avatar; the preview is that light.
+      final glow = color ?? AppColors.text4(d);
+      return SizedBox(
+        width: size, height: size,
+        child: Center(
+          child: Container(
+            width: size * 0.62, height: size * 0.62,
+            decoration: BoxDecoration(
+              color: AppColors.card(d),
+              shape: BoxShape.circle,
+              border: Border.all(color: glow, width: 2),
+              boxShadow: color == null
+                  ? null
+                  : [BoxShadow(
+                      color: glow.withValues(alpha: 0.55),
+                      blurRadius: size * 0.30, spreadRadius: size * 0.06)],
+            ),
+          ),
+        ),
+      );
+
+    case CosmeticKind.title:
+      return SqTintBox(PhosphorIconsFill.sealCheck,
+        tint: _rarity(item.rarity).tint, size: size);
+  }
+}
+
+/// What the learner is wearing right now, read straight out of the catalogue
+/// rather than from a second request.
+///
+/// Without this the shop could say what a thing costs but never what you
+/// already chose — and for a banner, a badge or an aura there was no screen
+/// in the app that showed it at all.
+class _Wearing extends StatelessWidget {
+  final List<Cosmetic> items;
+  const _Wearing({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    final worn = [for (final c in items) if (c.equipped && !c.isDefault) c];
+    if (worn.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: SqPanel(
+        radius: 20,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SqEyebrow(tr('Қазір киіп жүргенің')),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 14, runSpacing: 12,
+              children: [
+                for (final c in worn)
+                  SizedBox(
+                    width: 64,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        cosmeticPreview(context, c, size: 36),
+                        const SizedBox(height: 5),
+                        Text(c.name,
+                          maxLines: 2,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 10, height: 1.25,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.text3(d))),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The way into a sixty-item catalogue: one chip per kind, each carrying how
+/// much of that shelf is already yours.
+class _KindFilter extends StatelessWidget {
+  final List<CosmeticKind> kinds;
+  final CosmeticKind? selected;
+  final int Function(CosmeticKind) ownedOf, totalOf;
+  final ValueChanged<CosmeticKind?> onPick;
+
+  const _KindFilter({
+    required this.kinds,
+    required this.selected,
+    required this.ownedOf,
+    required this.totalOf,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    // 38, not 36: the chip is 9-pt padded around a 12-pt label, and the app
+    // clamps text scaling at 1.2 rather than at 1.0.
+    height: 38,
+    child: ListView(
+      scrollDirection: Axis.horizontal,
+      // The page already has 18-pt gutters; the strip scrolls inside them
+      // rather than bleeding to the screen edge.
+      padding: EdgeInsets.zero,
+      children: [
+        SqChip(tr('Бәрі'),
+          selected: selected == null,
+          outlined: selected != null,
+          radius: 999,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          onTap: () => onPick(null)),
+        for (final k in kinds) ...[
+          const SizedBox(width: 8),
+          SqChip('${cosmeticKindShort(k)} ${ownedOf(k)}/${totalOf(k)}',
+            selected: selected == k,
+            outlined: selected != k,
+            radius: 999,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            onTap: () => onPick(k)),
+        ],
+      ],
+    ),
+  );
 }

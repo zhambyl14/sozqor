@@ -51,6 +51,12 @@ class ProfileScreen extends ConsumerWidget {
     final spendable = ref.watch(spendableXpProvider);
     final frameColor = ref.watch(myFrameColorProvider);
     final title = ref.watch(myTitleProvider);
+    // The other three equip slots. They exist on the profile row and in the
+    // shop, and until now nothing rendered them anywhere.
+    final myWorn = ref.watch(myWornProvider);
+    final banner = sqHexColor(myWorn.bannerColor);
+    final aura   = sqHexColor(myWorn.auraColor);
+    final badge  = myWorn.badge;
     final learned = words.where((w) => w.isLearned).length;
 
     Future<void> open(Widget screen) async {
@@ -83,71 +89,118 @@ class ProfileScreen extends ConsumerWidget {
 
         SqPanel(
           radius: 24,
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.zero,
           child: Column(
             children: [
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  // The ring colour comes from the shop catalogue rather than
-                  // a switch over known ids: the catalogue lives server-side
-                  // so new frames ship without an app release, and a hardcoded
-                  // list could never know about them.
-                  color: frameColor ?? AppColors.muted(d),
-                  shape: BoxShape.circle),
-                child: Container(
-                  width: 78, height: 78,
+              // The banner. Nothing in the app ever drew one before, so a
+              // learner could pay 3000 XP for "Алтын" and never see it — this
+              // card is the thing a banner is for.
+              if (banner != null)
+                Container(
+                  height: 46,
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.card(d), width: 3)),
-                  alignment: Alignment.center,
-                  child: (profile?.avatarEmoji ?? '').isEmpty
-                      ? SqNum(sqInitial(profile?.name),
-                          size: 30, color: Colors.white)
-                      : Text(profile!.avatarEmoji,
-                          style: const TextStyle(fontSize: 36)),
+                    gradient: LinearGradient(
+                      colors: [banner, banner.withValues(alpha: 0.3)],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(23))),
+                ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(20, banner == null ? 20 : 16, 20, 20),
+                child: Column(
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            // The ring colour comes from the shop catalogue rather
+                            // than a switch over known ids: the catalogue lives
+                            // server-side so new frames ship without an app
+                            // release, and a hardcoded list could never know about
+                            // them. The aura is the same payload, spent as light.
+                            color: frameColor ?? AppColors.muted(d),
+                            shape: BoxShape.circle,
+                            boxShadow: aura == null
+                                ? null
+                                : [BoxShadow(
+                                    color: aura.withValues(alpha: 0.55),
+                                    blurRadius: 26, spreadRadius: 4)]),
+                          child: Container(
+                            width: 78, height: 78,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.card(d), width: 3)),
+                            alignment: Alignment.center,
+                            child: (profile?.avatarEmoji ?? '').isEmpty
+                                ? SqNum(sqInitial(profile?.name),
+                                    size: 30, color: Colors.white)
+                                : Text(profile!.avatarEmoji,
+                                    style: const TextStyle(fontSize: 36)),
+                          ),
+                        ),
+                        if (badge != null)
+                          Positioned(
+                            right: -2, bottom: 0,
+                            child: Container(
+                              width: 32, height: 32,
+                              decoration: BoxDecoration(
+                                color: AppColors.card(d),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: AppColors.border(d), width: 1.5)),
+                              alignment: Alignment.center,
+                              child: Text(badge,
+                                style: const TextStyle(fontSize: 17, height: 1)),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text(profile?.name ?? '…',
+                      style: TextStyle(
+                        fontSize: 21, fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4, color: AppColors.text(d))),
+                    const SizedBox(height: 3),
+                    Text(
+                      profile?.isGuest ?? false
+                          ? tr('Қонақ аккаунт')
+                          : '@${profile?.username ?? ''}',
+                      style: TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w600,
+                        color: AppColors.text3(d))),
+                    const SizedBox(height: 10),
+                    Wrap(spacing: 7, runSpacing: 7,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        // An earned title sits first: it is the one badge here the
+                        // learner chose rather than was assigned.
+                        if (title != null)
+                          SqBadge(title, tint: AppColors.primary, solid: true),
+                        SqBadge(profile?.cefrLevel ?? 'A1', tint: AppColors.sky),
+                        SqBadge(tr(profile?.rankTitle ?? '—'), tint: AppColors.amber),
+                      ]),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        SqNum('LVL ${profile?.levelNumber ?? 1}',
+                          size: 12, color: AppColors.text(d)),
+                        const Spacer(),
+                        Text(trp('келесі деңгейге {xp} XP',
+                            {'xp': '${profile?.xpToNextLevel ?? 100}'}),
+                          style: TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.w700,
+                            color: AppColors.text3(d))),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    SqTrack(profile?.levelProgress ?? 0, height: 9),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(profile?.name ?? '…',
-                style: TextStyle(
-                  fontSize: 21, fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4, color: AppColors.text(d))),
-              const SizedBox(height: 3),
-              Text(
-                profile?.isGuest ?? false
-                    ? tr('Қонақ аккаунт')
-                    : '@${profile?.username ?? ''}',
-                style: TextStyle(
-                  fontSize: 12.5, fontWeight: FontWeight.w600,
-                  color: AppColors.text3(d))),
-              const SizedBox(height: 10),
-              Wrap(spacing: 7, runSpacing: 7,
-                alignment: WrapAlignment.center,
-                children: [
-                  // An earned title sits first: it is the one badge here the
-                  // learner chose rather than was assigned.
-                  if (title != null)
-                    SqBadge(title, tint: AppColors.primary, solid: true),
-                  SqBadge(profile?.cefrLevel ?? 'A1', tint: AppColors.sky),
-                  SqBadge(tr(profile?.rankTitle ?? '—'), tint: AppColors.amber),
-                ]),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  SqNum('LVL ${profile?.levelNumber ?? 1}',
-                    size: 12, color: AppColors.text(d)),
-                  const Spacer(),
-                  Text(trp('келесі деңгейге {xp} XP',
-                      {'xp': '${profile?.xpToNextLevel ?? 100}'}),
-                    style: TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w700,
-                      color: AppColors.text3(d))),
-                ],
-              ),
-              const SizedBox(height: 7),
-              SqTrack(profile?.levelProgress ?? 0, height: 9),
             ],
           ),
         ),

@@ -16,12 +16,40 @@
 import '../../core/i18n/l10n.dart';
 import '../supa.dart';
 
-enum CosmeticKind { frame, title, avatar }
+/// One per equip slot on `profiles`, and one per value `cosmetics_kind_check`
+/// allows. The enum used to stop at three, and `_kindOf` folded everything it
+/// did not recognise into `avatar` — so every banner, badge and aura in the
+/// catalogue arrived on the shop shelf labelled "Аватар" and drew itself with
+/// the fallback 🙂, because a banner carries a colour and no emoji at all.
+enum CosmeticKind { frame, title, avatar, banner, badge, aura }
 
 CosmeticKind _kindOf(String raw) => switch (raw) {
   'frame'  => CosmeticKind.frame,
   'title'  => CosmeticKind.title,
+  'banner' => CosmeticKind.banner,
+  'badge'  => CosmeticKind.badge,
+  'aura'   => CosmeticKind.aura,
   _        => CosmeticKind.avatar,
+};
+
+/// The section a kind is sold under, in the interface language.
+String cosmeticKindLabel(CosmeticKind k) => switch (k) {
+  CosmeticKind.frame  => tr('Аватар жиектері'),
+  CosmeticKind.title  => tr('Атақтар'),
+  CosmeticKind.avatar => tr('Аватарлар'),
+  CosmeticKind.banner => tr('Баннерлер'),
+  CosmeticKind.badge  => tr('Белгішелер'),
+  CosmeticKind.aura   => tr('Ауралар'),
+};
+
+/// The same thing in one word, for a catalogue filter chip.
+String cosmeticKindShort(CosmeticKind k) => switch (k) {
+  CosmeticKind.frame  => tr('Жиек'),
+  CosmeticKind.title  => tr('Атақ'),
+  CosmeticKind.avatar => tr('Аватар'),
+  CosmeticKind.banner => tr('Баннер'),
+  CosmeticKind.badge  => tr('Белгіше'),
+  CosmeticKind.aura   => tr('Аура'),
 };
 
 /// How hard something was to get. Drives nothing but presentation — the
@@ -109,18 +137,38 @@ class Cosmetic {
 }
 
 /// What one person is wearing, for rendering somebody *else* on a board.
+///
+/// `worn_cosmetics` has always returned all five renderable payloads; this
+/// class only read the first two, which is why a badge or an aura somebody
+/// paid thousands of XP for showed up nowhere.
 class WornCosmetics {
   final String? frameId;
   final String? frameColor;
   final String? titleKk, titleRu;
+  final String? bannerColor;
+  final String? badgeEmoji;
+  final String? auraColor;
 
   const WornCosmetics({
-    this.frameId, this.frameColor, this.titleKk, this.titleRu});
+    this.frameId,
+    this.frameColor,
+    this.titleKk,
+    this.titleRu,
+    this.bannerColor,
+    this.badgeEmoji,
+    this.auraColor,
+  });
 
   String? get title {
     final t = AppLang.isRu ? titleRu : titleKk;
     return (t == null || t.isEmpty) ? null : t;
   }
+
+  String? get badge => (badgeEmoji ?? '').isEmpty ? null : badgeEmoji;
+
+  bool get isEmpty =>
+      frameColor == null && title == null && badge == null &&
+      bannerColor == null && auraColor == null;
 }
 
 class CosmeticsRepo {
@@ -155,10 +203,13 @@ class CosmeticsRepo {
       final id = (m['user_id'] ?? '').toString();
       if (id.isEmpty) continue;
       out[id] = WornCosmetics(
-        frameId:    m['frame'] as String?,
-        frameColor: m['frame_color'] as String?,
-        titleKk:    m['title_kk'] as String?,
-        titleRu:    m['title_ru'] as String?,
+        frameId:     m['frame'] as String?,
+        frameColor:  m['frame_color'] as String?,
+        titleKk:     m['title_kk'] as String?,
+        titleRu:     m['title_ru'] as String?,
+        bannerColor: m['banner_color'] as String?,
+        badgeEmoji:  m['badge_emoji'] as String?,
+        auraColor:   m['aura_color'] as String?,
       );
     }
     return out;

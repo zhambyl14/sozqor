@@ -16,11 +16,28 @@ import '../../data/models/battle.dart';
 import '../../data/models/dict_entry.dart';
 import '../../data/models/question.dart';
 import '../../data/models/word.dart';
+import '../../data/repos/cosmetics_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/question_factory.dart';
 import '../arena/battle_screen.dart';
 import '../auth/guest_gate.dart';
+import 'worn_avatar.dart';
+
+/// What the people on this screen are wearing. One request for the whole
+/// list, keyed off the friends list so it refetches exactly when that does.
+final _friendsWornProvider =
+    FutureProvider<Map<String, WornCosmetics>>((ref) async {
+  final rows = await ref.watch(friendsProvider.future);
+  if (rows.isEmpty) return const {};
+  return ref
+      .watch(cosmeticsRepoProvider)
+      .worn(rows.map((r) => r.userId).toList());
+});
+
+/// Claimed accounts to offer before anybody has typed a search.
+final _suggestedProvider = FutureProvider<List<BoardRow>>(
+    (ref) => ref.watch(boardRepoProvider).suggestedPeople());
 
 class FriendsScreen extends ConsumerStatefulWidget {
   const FriendsScreen({super.key});
@@ -32,6 +49,9 @@ class FriendsScreen extends ConsumerStatefulWidget {
 class _FriendsScreenState extends ConsumerState<FriendsScreen> {
   final _search = TextEditingController();
   List<BoardRow> _results = const [];
+  /// Cosmetics for the search results only; the friends list has its own
+  /// provider, and a stranger's frame matters as much as a friend's.
+  Map<String, WornCosmetics> _resultWorn = const {};
   bool _searching = false;
   bool _searched = false;
   String? _challenging;
@@ -56,7 +76,21 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     setState(() => _searching = true);
     try {
       final rows = await ref.read(boardRepoProvider).searchUsers(q);
-      if (mounted) setState(() { _results = rows; _searched = true; });
+      // A failed cosmetics lookup must not lose the search itself: the names
+      // are the answer, the frames are decoration on top of it.
+      final worn = rows.isEmpty
+          ? const <String, WornCosmetics>{}
+          : await ref
+              .read(cosmeticsRepoProvider)
+              .worn(rows.map((r) => r.userId).toList())
+              .catchError((_) => const <String, WornCosmetics>{});
+      if (mounted) {
+        setState(() {
+          _results = rows;
+          _resultWorn = worn;
+          _searched = true;
+        });
+      }
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     } finally {
@@ -153,6 +187,10 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
     final friends = ref.watch(friendsProvider);
+    final worn = {
+      ...ref.watch(_friendsWornProvider).value ?? const <String, WornCosmetics>{},
+      ..._resultWorn,
+    };
     final invites = ref.watch(pendingInvitesProvider).value ?? const <Battle>[];
     final friendIds = {
       for (final f in friends.value ?? const <BoardRow>[]) f.userId
@@ -292,6 +330,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
             for (final r in _results)
               _PersonRow(
                 row: r,
+                worn: worn[r.userId],
                 isFriend: friendIds.contains(r.userId),
                 challenging: _challenging == r.userId,
                 onAdd: () => _add(r),
@@ -303,9 +342,38 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
           SqEmpty(
             icon: PhosphorIconsFill.magnifyingGlass,
             title: tr('Ешкім табылмады'),
-            subtitle: tr('Басқа логин немесе есім қолданып көр'),
+            subtitle: tr('Тек тіркелген аккаунттар табылады'),
             tint: AppColors.sky),
           const SizedBox(height: 20),
+        ],
+
+        // Somebody to add without having to guess a username first. Only
+        // people who are not already friends, and only while the search box
+        // is not showing its own answer.
+        if (_results.isEmpty && !_searching) ...[
+          ...(() {
+            final all = ref.watch(_suggestedProvider).value
+                ?? const <BoardRow>[];
+            final fresh = [
+              for (final r in all) if (!friendIds.contains(r.userId)) r,
+            ];
+            if (fresh.isEmpty) return const <Widget>[];
+            return [
+              SqSection(tr('Мына адамдарды қосуға болады')),
+              SqGroup(children: [
+                for (final r in fresh)
+                  _PersonRow(
+                    row: r,
+                    worn: worn[r.userId],
+                    isFriend: false,
+                    challenging: _challenging == r.userId,
+                    onAdd: () => _add(r),
+                    onRemove: () => _remove(r),
+                    onChallenge: () => _challenge(r)),
+              ]),
+              const SizedBox(height: 20),
+            ];
+          })(),
         ],
 
         SqSection(tr('Достарым'),
@@ -330,6 +398,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
               for (final f in rows)
                 _PersonRow(
                   row: f, isFriend: true,
+                  worn: worn[f.userId],
                   challenging: _challenging == f.userId,
                   onAdd: () {}, onRemove: () => _remove(f),
                   onChallenge: () => _challenge(f)),
@@ -348,19 +417,28 @@ class _PersonRow extends StatelessWidget {
   final VoidCallback onAdd, onRemove;
   final VoidCallback? onChallenge;
 
+  /// What this person is wearing, once the cosmetics for the list have
+  /// arrived. Null renders the plain row, as before.
+  final WornCosmetics? worn;
+
   const _PersonRow({
     required this.row, required this.isFriend,
     this.challenging = false,
     required this.onAdd, required this.onRemove,
-    this.onChallenge});
+    this.onChallenge, this.worn});
 
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
+    final title = worn?.title;
     return SqTile(
-      leading: SqAvatar(row.name, size: 38, tint: AppColors.sky),
+      fill: wornRowFill(worn, d),
+      leading: WornAvatar(
+        name: row.name, worn: worn, size: 38, emoji: row.avatarEmoji),
       title: row.name,
-      subtitle: '${row.cefrLevel} · ${row.value} XP',
+      subtitle: title == null
+          ? '${row.cefrLevel} · ${row.value} XP'
+          : '${row.cefrLevel} · ${row.value} XP · $title',
       trailing: isFriend
           ? Row(
               mainAxisSize: MainAxisSize.min,

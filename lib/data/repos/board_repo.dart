@@ -104,6 +104,38 @@ class BoardRepo {
   Future<List<BoardRow>> friends() async =>
       _rows(await supa.rpc('my_friends'));
 
+  /// People worth adding, for a friends screen nobody has searched on yet.
+  ///
+  /// `search_users` deliberately skips guest accounts — they are every one of
+  /// them called "Қонақ", so searching over them would answer with dozens of
+  /// identical rows — and almost every account is a guest until it is
+  /// claimed. The screen opened on an empty search box over that set, so the
+  /// honest outcome of using it was "nobody exists", which is what made
+  /// friends read as a feature that does not work. Offering the claimed
+  /// accounts up front shows the same set a search can actually reach,
+  /// without the guessing.
+  Future<List<BoardRow>> suggestedPeople({int limit = 12}) async {
+    final uid = currentUid;
+    var q = supa
+        .from('profiles')
+        .select('id, username, display_name, avatar_emoji, cefr_level, xp')
+        .eq('is_guest', false);
+    if (uid != null) q = q.neq('id', uid);
+    final rows = await q.order('xp', ascending: false).limit(limit);
+    return [
+      for (final r in rows as List)
+        BoardRow(
+          userId:      ((r as Map)['id'] ?? '').toString(),
+          username:    (r['username'] ?? '').toString(),
+          displayName: (r['display_name'] ?? '').toString(),
+          avatarEmoji: (r['avatar_emoji'] ?? '🦊').toString(),
+          cefrLevel:   (r['cefr_level'] ?? 'A1').toString(),
+          value:       ((r['xp'] ?? 0) as num).toInt(),
+          rank:        0,
+        ),
+    ];
+  }
+
   Future<List<BoardRow>> searchUsers(String query) async =>
       _rows(await supa.rpc('search_users',
           params: {'p_query': query, 'p_limit': 20}));

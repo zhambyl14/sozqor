@@ -311,7 +311,7 @@ class _Bar extends StatelessWidget {
     final tint = stat.isToday
         ? AppColors.primary
         : stat.xp == 0
-            ? (d ? AppColors.borderD : const Color(0xFFF0EEF7))
+            ? AppColors.muted(d)
             : AppColors.primaryEdge;
     final ink = stat.isToday
         ? (d ? AppColors.primary : AppColors.primaryDeep)

@@ -148,8 +148,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         decoration: BoxDecoration(
                           color: i <= _step
                               ? AppColors.primary
-                              : (d ? AppColors.borderD
-                                   : const Color(0xFFE7E4F3)),
+                              : AppColors.border(d),
                           borderRadius: BorderRadius.circular(999)),
                       ),
                     ),
@@ -190,7 +189,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   if (_step > 0) ...[
                     SqSquareButton(PhosphorIconsBold.arrowLeft,
                       size: 56,
-                      lip: d ? AppColors.borderD : const Color(0xFFEDEAF6),
+                      lip: AppColors.surfaceLip(d),
                       onTap: () => _to(_step - 1)),
                     const SizedBox(width: 10),
                   ],

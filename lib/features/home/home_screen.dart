@@ -193,7 +193,7 @@ class _Shortcut extends StatelessWidget {
     return SqLip(
       fill: AppColors.card(d),
       border: AppColors.border(d),
-      lip: d ? AppColors.borderD : const Color(0xFFF0EEF7),
+      lip: AppColors.surfaceLip(d),
       depth: 3,
       radius: 18,
       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -602,7 +602,7 @@ class _MissionsCard extends StatelessWidget {
     return SqLip(
       fill: AppColors.card(d),
       border: AppColors.border(d),
-      lip: d ? AppColors.borderD : const Color(0xFFF0EEF7),
+      lip: AppColors.surfaceLip(d),
       depth: 3,
       radius: 20,
       padding: const EdgeInsets.all(15),

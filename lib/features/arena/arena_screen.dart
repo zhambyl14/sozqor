@@ -358,7 +358,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
               child: SqLip(
                 fill: playedDaily ? AppColors.muted(d) : AppColors.primary,
                 lip: playedDaily
-                    ? (d ? AppColors.borderD : const Color(0xFFEDEAF6))
+                    ? AppColors.surfaceLip(d)
                     : AppColors.primaryDeep,
                 radius: 20,
                 padding: const EdgeInsets.all(15),
@@ -412,7 +412,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
               child: SqLip(
                 fill: AppColors.card(d),
                 border: AppColors.border(d),
-                lip: d ? AppColors.borderD : const Color(0xFFF0EEF7),
+                lip: AppColors.surfaceLip(d),
                 depth: 3,
                 radius: 20,
                 padding: const EdgeInsets.all(15),

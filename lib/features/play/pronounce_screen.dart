@@ -694,7 +694,7 @@ class _Wave extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: live
                       ? AppColors.primary
-                      : (d ? AppColors.borderD : const Color(0xFFE7E4F3)),
+                      : AppColors.border(d),
                   borderRadius: BorderRadius.circular(999)),
               ),
               if (i != bars - 1) const SizedBox(width: 3),

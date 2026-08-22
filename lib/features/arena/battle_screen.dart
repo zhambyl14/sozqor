@@ -784,7 +784,7 @@ class _BattleAnswer extends StatelessWidget {
   Widget build(BuildContext context) {
     Color fill = Colors.white;
     Color ink = AppColors.ink;
-    Color badgeBg = const Color(0xFFF4F2FA);
+    Color badgeBg = AppColors.mutedL;
     Color badgeInk = AppColors.text3L;
 
     if (revealed && isCorrect) {

@@ -139,7 +139,7 @@ class SpellingPad extends StatelessWidget {
               fill: onInk ? Colors.white.withValues(alpha: 0.08) : AppColors.card(d),
               border: onInk ? null : edge,
               borderWidth: 1.5,
-              lip: onInk ? null : (d ? AppColors.borderD : const Color(0xFFEDEAF6)),
+              lip: onInk ? null : AppColors.surfaceLip(d),
               depth: 3,
               radius: 16,
               onTap: revealed || chosen.isEmpty ? null : onUndo,
@@ -236,7 +236,7 @@ class _LetterTile extends StatelessWidget {
         borderWidth: 1.5,
         lip: onInk
             ? Colors.black.withValues(alpha: 0.35)
-            : (d ? AppColors.borderD : const Color(0xFFEDEAF6)),
+            : AppColors.surfaceLip(d),
         depth: 4,
         radius: 14,
         onTap: live

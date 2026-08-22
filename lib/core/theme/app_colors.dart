@@ -84,9 +84,17 @@ class AppColors {
   static const Color surfaceD = Color(0xFF16142B);
   static const Color cardL    = Color(0xFFFFFFFF);
   static const Color cardD    = Color(0xFF1B1934);
-  static const Color borderL  = Color(0xFFECEAF4);
+  // Light mode ships as the default theme, so these two are what almost every
+  // learner actually sees. They used to be 0xFFECEAF4 and 0xFFF4F2FA, which
+  // against a white card come out at contrast 1.19 and 1.07 — below the point
+  // a boundary is visible at all. Everything the design draws as "a white
+  // card with a hairline" therefore had no hairline and no card: a plain
+  // white button on a 0xFFF7F6FB page, which is exactly the "the buttons have
+  // no colour" the light theme was reported for. Dark mode never showed it —
+  // borderD against cardD is a clear step either way.
+  static const Color borderL  = Color(0xFFDCD6EC);
   static const Color borderD  = Color(0xFF2C2950);
-  static const Color dividerL = Color(0xFFF4F2FA);
+  static const Color dividerL = Color(0xFFE9E5F3);
   static const Color dividerD = Color(0xFF242143);
   // A recessed surface, one step below a card. This used to be
   // 0xFFF7F6FB — the exact value of bgL — so any muted panel sitting
@@ -176,6 +184,12 @@ class AppColors {
     if (a == ink) return inkLip;
     return Color.lerp(a, Colors.black, 0.24) ?? a;
   }
+
+  /// The solid edge under a *surface* button — a header square, a ghost
+  /// action, a lifted panel. [lipOf] is for accents; this is the neutral one
+  /// that has to read against white without turning grey.
+  static Color surfaceLip(bool d) =>
+      d ? const Color(0xFF0A0918) : const Color(0xFFCEC7E4);
 
   static Color glass(bool d) => d
       ? const Color(0xFF16142B).withValues(alpha: 0.90)

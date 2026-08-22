@@ -380,7 +380,7 @@ class _PackDetailScreenState extends ConsumerState<PackDetailScreen> {
                       size: 54,
                       fill: AppColors.card(d),
                       border: AppColors.border(d),
-                      lip: d ? AppColors.borderD : const Color(0xFFEDEAF6),
+                      lip: AppColors.surfaceLip(d),
                       onTap: _adding ? null : () => _addAll(entries)),
                   ],
                 ),

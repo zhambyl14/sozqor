@@ -319,9 +319,13 @@ class SqAction extends StatelessWidget {
         lip = null; border = AppColors.line(AppColors.primary, d);
         ink = AppColors.onSoft(AppColors.primary, d);
       case SqTone.ghost:
+        // The lip and the border used to be 0xFFEDEAF6 / 0xFFE7E4F3, both a
+        // hair off white — so in light mode the whole button was a white
+        // rectangle on a 0xFFF7F6FB page and read as a line of text rather
+        // than as something to press.
         fill = AppColors.card(d);
-        lip = d ? AppColors.borderD : const Color(0xFFEDEAF6);
-        border = d ? AppColors.borderD : const Color(0xFFE7E4F3);
+        lip = AppColors.surfaceLip(d);
+        border = AppColors.border(d);
         ink = AppColors.text2(d);
     }
 
@@ -412,12 +416,17 @@ class SqSquareButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
+    // A default-filled square is a surface button — back, gear, bell — and
+    // gets the surface lip so it is visibly pressable. One built with its own
+    // [fill] is already carrying a tint of its own and is left alone: a
+    // neutral violet edge under a red or green square would fight it.
+    final edge = lip ?? (onInk || fill != null ? null : AppColors.surfaceLip(d));
     final body = SqLip(
       fill: fill ??
           (onInk ? Colors.white.withValues(alpha: 0.08) : AppColors.card(d)),
       border: border ?? (onInk ? null : AppColors.border(d)),
-      lip: lip,
-      depth: lip == null ? 0 : 3,
+      lip: edge,
+      depth: edge == null ? 0 : 3,
       radius: size * 0.34,
       onTap: onTap,
       child: SizedBox(
@@ -485,7 +494,7 @@ class SqPanel extends StatelessWidget {
     return SqLip(
       fill: fill ?? AppColors.card(d),
       border: border ?? AppColors.border(d),
-      lip: lifted ? (d ? AppColors.borderD : const Color(0xFFF0EEF7)) : null,
+      lip: lifted ? AppColors.surfaceLip(d) : null,
       depth: 3,
       radius: radius,
       padding: padding,
@@ -962,7 +971,7 @@ class SqTrack extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
-    final track = background ?? (d ? AppColors.borderD : const Color(0xFFF0EEF7));
+    final track = background ?? (d ? AppColors.borderD : AppColors.mutedL);
     return ClipRRect(
       borderRadius: BorderRadius.circular(height),
       child: Container(
@@ -1023,7 +1032,7 @@ class SqBeads extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
-    final idle = pending ?? (d ? AppColors.borderD : const Color(0xFFE7E4F3));
+    final idle = pending ?? AppColors.border(d);
     return Row(
       children: [
         for (var i = 0; i < total; i++) ...[
@@ -1082,7 +1091,7 @@ class SqRing extends StatelessWidget {
           painter: _RingPainter(
             value: v,
             color: color,
-            track: track ?? (d ? AppColors.borderD : const Color(0xFFF0EEF7)),
+            track: track ?? AppColors.muted(d),
             stroke: stroke,
           ),
           child: Center(child: child),
@@ -1140,7 +1149,7 @@ class SqMastery extends StatelessWidget {
           shape: BoxShape.circle,
           color: i < mastery
               ? AppColors.green
-              : (d ? AppColors.borderD : const Color(0xFFE7E4F3)),
+              : AppColors.border(d),
         ),
       )),
     );
@@ -1235,7 +1244,10 @@ class SqSegmented extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
-        color: AppColors.card(d),
+        // A recessed track, not a card: the selected pill has to look like it
+        // sits *in* something, and on a white box in light mode it looked
+        // like a lone dark chip floating on the page.
+        color: AppColors.muted(d),
         borderRadius: BorderRadius.circular(15),
         border: Border.all(color: AppColors.border(d)),
       ),
@@ -1261,7 +1273,7 @@ class SqSegmented extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5, fontWeight: FontWeight.w800,
-                      color: i == index ? Colors.white : AppColors.text3(d)),
+                      color: i == index ? Colors.white : AppColors.text2(d)),
                   ),
                 ),
               ),
@@ -1293,11 +1305,11 @@ class SqAnswer extends StatelessWidget {
     final d = isDark(context);
 
     Color fill = AppColors.card(d);
-    Color border = d ? AppColors.borderD : const Color(0xFFE7E4F3);
+    Color border = AppColors.border(d);
     Color ink = AppColors.text(d);
     Color badgeBg = AppColors.muted(d);
     Color badgeInk = AppColors.text3(d);
-    Color? lip = d ? AppColors.borderD : const Color(0xFFEDEAF6);
+    Color? lip = AppColors.surfaceLip(d);
     IconData? mark;
 
     if (revealed && isCorrect) {

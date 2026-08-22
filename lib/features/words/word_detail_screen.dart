@@ -360,8 +360,7 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
                         decoration: BoxDecoration(
                           color: i < _word.mastery
                               ? AppColors.green
-                              : (d ? AppColors.borderD
-                                   : const Color(0xFFE7E4F3)),
+                              : AppColors.border(d),
                           borderRadius: BorderRadius.circular(999)),
                       ),
                     ),
@@ -434,7 +433,7 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
               size: 52,
               fill: AppColors.card(d),
               border: AppColors.border(d),
-              lip: d ? AppColors.borderD : const Color(0xFFEDEAF6),
+              lip: AppColors.surfaceLip(d),
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => PronounceScreen(
                   only: _word.en, onlyWordId: _word.id)))),

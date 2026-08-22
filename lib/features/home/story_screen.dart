@@ -195,7 +195,7 @@ class _PathNode extends StatelessWidget {
         icon = PhosphorIconsFill.gift; label = tr('Сыйлық');
       case _NodeKind.locked:
         bg = AppColors.card(d); ink = AppColors.text4(d);
-        lip = d ? AppColors.borderD : const Color(0xFFEDEAF6);
+        lip = AppColors.surfaceLip(d);
         icon = PhosphorIconsFill.lockSimple;
         label = trp('Деңгей {n}', {'n': '${index + 1}'});
     }
@@ -290,7 +290,7 @@ class _Connector extends StatelessWidget {
         painter: _ConnectorPainter(
           color: done
               ? AppColors.green
-              : (d ? AppColors.borderD : const Color(0xFFE7E4F3)),
+              : AppColors.border(d),
           left: left,
         ),
         child: const SizedBox.expand(),

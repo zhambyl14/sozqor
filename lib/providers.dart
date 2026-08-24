@@ -105,6 +105,22 @@ final myWornProvider = Provider<WornCosmetics>((ref) {
   );
 });
 
+/// The whole catalogue row for the frame a learner is wearing.
+///
+/// The colour alone was all anything read, which is why every frame looked the
+/// same shape in a different shade. The row carries the `data` payload too —
+/// a second colour and a motion — so a new frame is a database row rather than
+/// a client release (EN-41).
+final myFrameItemProvider = Provider<Cosmetic?>((ref) {
+  final id = ref.watch(myProfileProvider).valueOrNull?.equippedFrame;
+  if (id == null || id.isEmpty) return null;
+  final items = ref.watch(shopCatalogueProvider).valueOrNull ?? const <Cosmetic>[];
+  for (final c in items) {
+    if (c.id == id) return c;
+  }
+  return null;
+});
+
 /// The title a learner is wearing, already in the interface language.
 final myTitleProvider = Provider<String?>((ref) {
   final id = ref.watch(myProfileProvider).valueOrNull?.equippedTitle;

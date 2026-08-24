@@ -32,7 +32,9 @@ import '../../data/models/question.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/achievements.dart';
+import '../../data/repos/cosmetics_repo.dart';
 import '../../services/speech.dart';
+import '../profile/cosmetic_preview.dart';
 import 'rematch_series.dart';
 
 /// One finished round, for the post-match table.
@@ -123,6 +125,12 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       : (_oppProfileName ?? tr('Қарсылас'));
 
   String? _oppProfileName;
+  String? _oppEmoji;
+  int? _oppElo;
+  /// What the opponent is wearing. Fetched once with their profile — a second
+  /// request per battle for six equip slots that never change mid-match would
+  /// be a request per battle for nothing.
+  WornCosmetics? _oppWorn;
 
   @override
   void initState() {
@@ -177,7 +185,17 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     try {
       final p = await ref.read(profileRepoProvider).byId(oppId);
       if (mounted && p != null) {
-        setState(() => _oppProfileName = p.name);
+        setState(() {
+          _oppProfileName = p.name;
+          _oppEmoji = p.avatarEmoji;
+          _oppElo = p.elo;
+        });
+      }
+      final worn = await ref.read(cosmeticsRepoProvider)
+          .worn([oppId])
+          .catchError((_) => const <String, WornCosmetics>{});
+      if (mounted && worn[oppId] != null) {
+        setState(() => _oppWorn = worn[oppId]);
       }
     } catch (_) {/* opponent card just stays generic */}
   }
@@ -608,6 +626,8 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                   name: me?.name ?? tr('Сен'),
                   rating: '${me?.elo ?? 1000}',
                   score: _score,
+                  worn: ref.watch(myWornProvider),
+                  emoji: me?.avatarEmoji,
                   mine: true),
               ),
               const Padding(
@@ -617,8 +637,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
               Expanded(
                 child: _PlayerCard(
                   name: _oppName,
-                  rating: _isBot ? tr('бот') : '—',
+                  rating: _isBot ? tr('бот') : '${_oppElo ?? '—'}',
                   score: _oppScore,
+                  worn: _oppWorn,
+                  emoji: _oppEmoji,
                   mine: false),
               ),
             ],
@@ -777,24 +799,33 @@ class _PlayerCard extends StatelessWidget {
   final String name, rating;
   final int score;
   final bool mine;
+  /// EN-43 / KK-6: what this player is wearing. Cosmetics are bought to be
+  /// seen and the battle is the one place two people look at each other — so
+  /// before this, an opponent could not tell somebody who had spent a
+  /// thousand coins from somebody who had spent nothing.
+  final WornCosmetics? worn;
+  final String? emoji;
 
   const _PlayerCard({
     required this.name, required this.rating,
-    required this.score, required this.mine});
+    required this.score, required this.mine,
+    this.worn, this.emoji});
 
   @override
   Widget build(BuildContext context) {
-    final avatar = Container(
-      width: 38, height: 38,
-      decoration: BoxDecoration(
-        color: mine
-            ? AppColors.primary
-            : Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(13)),
-      alignment: Alignment.center,
-      child: SqNum(sqInitial(name),
-        size: 16, color: Colors.white),
-    );
+    final frame = sqHexColor(worn?.frameColor);
+    final title = worn?.title;
+
+    final avatar = CosmeticAvatar(
+      name: name,
+      emoji: emoji,
+      size: 40,
+      frame: frame ?? (mine ? AppColors.primary : null),
+      // Still, deliberately. The battle screen is dark and busy; two
+      // shimmering rings would compete with the question the round is about.
+      fx: FrameFx.none,
+      aura: sqHexColor(worn?.auraColor),
+      badge: worn?.badge);
 
     final label = Column(
       crossAxisAlignment:
@@ -802,12 +833,22 @@ class _PlayerCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(name,
+          maxLines: 1,
           style: const TextStyle(
             fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white)),
-        Text(rating,
-          style: const TextStyle(
-            fontSize: 10.5, fontWeight: FontWeight.w600,
-            color: AppColors.onInk2)),
+        if (title != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: CosmeticTitle(
+              title: title,
+              tint: frame ?? AppColors.amber,
+              size: 9.5),
+          )
+        else
+          Text(rating,
+            style: const TextStyle(
+              fontSize: 10.5, fontWeight: FontWeight.w600,
+              color: AppColors.onInk2)),
       ],
     );
 

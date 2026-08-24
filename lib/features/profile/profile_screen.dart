@@ -20,6 +20,7 @@ import '../arena/leaderboard_screen.dart';
 import '../auth/guest_gate.dart';
 import '../teams/teams_screen.dart';
 import 'achievements_screen.dart';
+import 'cosmetic_preview.dart';
 import 'friends_screen.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
@@ -57,6 +58,13 @@ class ProfileScreen extends ConsumerWidget {
     final banner = sqHexColor(myWorn.bannerColor);
     final aura   = sqHexColor(myWorn.auraColor);
     final badge  = myWorn.badge;
+    // The frame's motion and second colour come from the item's own `data`
+    // payload, so a new frame is a database row rather than a client release.
+    final frameItem = ref.watch(myFrameItemProvider);
+    final frameFx = frameItem == null
+        ? FrameFx.none : frameFxOf(frameItem.data);
+    final frameSecond = frameItem == null
+        ? null : frameSecondOf(frameItem.data);
     final learned = words.where((w) => w.isLearned).length;
 
     Future<void> open(Widget screen) async {
@@ -95,70 +103,24 @@ class ProfileScreen extends ConsumerWidget {
               // The banner. Nothing in the app ever drew one before, so a
               // learner could pay 3000 XP for "Алтын" and never see it — this
               // card is the thing a banner is for.
-              if (banner != null)
-                Container(
-                  height: 46,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [banner, banner.withValues(alpha: 0.3)],
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight),
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(23))),
-                ),
+              if (banner != null) CosmeticBanner(colour: banner),
               Padding(
                 padding: EdgeInsets.fromLTRB(20, banner == null ? 20 : 16, 20, 20),
                 child: Column(
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            // The ring colour comes from the shop catalogue rather
-                            // than a switch over known ids: the catalogue lives
-                            // server-side so new frames ship without an app
-                            // release, and a hardcoded list could never know about
-                            // them. The aura is the same payload, spent as light.
-                            color: frameColor ?? AppColors.muted(d),
-                            shape: BoxShape.circle,
-                            boxShadow: aura == null
-                                ? null
-                                : [BoxShadow(
-                                    color: aura.withValues(alpha: 0.55),
-                                    blurRadius: 26, spreadRadius: 4)]),
-                          child: Container(
-                            width: 78, height: 78,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: AppColors.card(d), width: 3)),
-                            alignment: Alignment.center,
-                            child: (profile?.avatarEmoji ?? '').isEmpty
-                                ? SqNum(sqInitial(profile?.name),
-                                    size: 30, color: Colors.white)
-                                : Text(profile!.avatarEmoji,
-                                    style: const TextStyle(fontSize: 36)),
-                          ),
-                        ),
-                        if (badge != null)
-                          Positioned(
-                            right: -2, bottom: 0,
-                            child: Container(
-                              width: 32, height: 32,
-                              decoration: BoxDecoration(
-                                color: AppColors.card(d),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: AppColors.border(d), width: 1.5)),
-                              alignment: Alignment.center,
-                              child: Text(badge,
-                                style: const TextStyle(fontSize: 17, height: 1)),
-                            ),
-                          ),
-                      ],
-                    ),
+                    // EN-40 / EN-41: one widget draws the frame, its
+                    // motion, the aura and the badge, shared with the shop and
+                    // the battle screen so a learner never sees an item look
+                    // different from where they bought it.
+                    CosmeticAvatar(
+                      name: profile?.name ?? '',
+                      emoji: profile?.avatarEmoji,
+                      size: 92,
+                      frame: frameColor,
+                      frameSecond: frameSecond,
+                      fx: frameFx,
+                      aura: aura,
+                      badge: badge),
                     const SizedBox(height: 14),
                     Text(profile?.name ?? '…',
                       style: TextStyle(
@@ -178,8 +140,13 @@ class ProfileScreen extends ConsumerWidget {
                       children: [
                         // An earned title sits first: it is the one badge here the
                         // learner chose rather than was assigned.
+                        // A title is a cosmetic somebody chose to wear, so it
+                        // is drawn as one rather than as a plain badge
+                        // indistinguishable from the level next to it.
                         if (title != null)
-                          SqBadge(title, tint: AppColors.primary, solid: true),
+                          CosmeticTitle(
+                            title: title,
+                            tint: frameColor ?? AppColors.primary),
                         SqBadge(profile?.cefrLevel ?? 'A1', tint: AppColors.sky),
                         SqBadge(tr(profile?.rankTitle ?? '—'), tint: AppColors.amber),
                       ]),

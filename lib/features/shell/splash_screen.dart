@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 import '../../core/constants/app_strings.dart';
+import '../../core/i18n/l10n.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 
@@ -29,7 +30,7 @@ class SplashScreen extends StatelessWidget {
                   fontSize: 28, fontWeight: FontWeight.w800,
                   letterSpacing: -0.9, color: AppColors.text(d))),
               const SizedBox(height: 6),
-              Text(S.slogan,
+              Text(tr(S.slogan),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13.5, fontWeight: FontWeight.w600,
@@ -66,7 +67,7 @@ class SplashScreen extends StatelessWidget {
                 const SizedBox(height: 18),
                 SizedBox(
                   width: 220,
-                  child: SqAction(S.retry,
+                  child: SqAction(tr(S.retry),
                     icon: PhosphorIconsBold.arrowClockwise,
                     onTap: onRetry)),
               ],

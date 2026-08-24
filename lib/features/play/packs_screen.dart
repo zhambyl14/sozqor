@@ -60,7 +60,7 @@ Future<void> _startOwnPack(BuildContext context, WidgetRef ref) async {
     pool: entries,
     kinds: kindsFor(profile?.cefrLevel ?? 'A1'),
     count: 10,
-    nativeLang: profile?.nativeLang ?? 'kk',
+    nativeLang: ref.read(nativeLangProvider),
   );
   if (questions.isEmpty) {
     sqSnack(context, tr('Сұрақ құрастыру мүмкін болмады'), error: true);
@@ -240,7 +240,7 @@ class _PackDetailScreenState extends ConsumerState<PackDetailScreen> {
       pool: entries,
       kinds: kindsFor(profile?.cefrLevel ?? 'A1'),
       count: roundSize,
-      nativeLang: profile?.nativeLang ?? 'kk',
+      nativeLang: ref.read(nativeLangProvider),
     );
     if (questions.isEmpty) {
       if (mounted) {

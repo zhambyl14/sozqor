@@ -56,11 +56,41 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
 
   /// Words swiped away locally, hidden from the list before the network
   /// delete confirms so a dismissed `Dismissible` is never rebuilt with the
-  /// same key while `myWordsProvider` is still serving the stale cache.
+  /// same key while the bank is still serving the stale cache.
   final Set<String> _removedIds = {};
 
+  /// The bank arrives twenty words at a time (EN-36). This watches the tab's
+  /// own scroll position and asks for the next page while the learner is
+  /// still a screen away from the bottom, so the list never visibly stalls.
+  ScrollController? _scroll;
+
+  void _onScroll() {
+    final c = _scroll;
+    if (c == null || !c.hasClients) return;
+    if (c.position.pixels < c.position.maxScrollExtent - 600) return;
+    final bank = ref.read(wordBankProvider);
+    if (bank.loading || bank.exhausted) return;
+    ref.read(wordBankProvider.notifier).loadMore();
+  }
+
   @override
-  void dispose() { _search.dispose(); super.dispose(); }
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // RootShell hands each tab its own PrimaryScrollController; picking it up
+    // here rather than owning one keeps that arrangement intact.
+    final c = PrimaryScrollController.maybeOf(context);
+    if (identical(c, _scroll)) return;
+    _scroll?.removeListener(_onScroll);
+    _scroll = c;
+    _scroll?.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scroll?.removeListener(_onScroll);
+    _search.dispose();
+    super.dispose();
+  }
 
   Future<void> _deleteWord(Word word) async {
     setState(() => _removedIds.add(word.id));
@@ -105,13 +135,20 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
-    final async = ref.watch(myWordsProvider);
-    final all = async.valueOrNull ?? const <Word>[];
+    final bank = ref.watch(wordBankProvider);
+    final all = bank.words;
     final shown = _apply(all);
     final learned = all.where((w) => w.isLearned).length;
     final due = ref.watch(dueCountProvider).valueOrNull ?? 0;
+    final total = ref.watch(wordCountProvider).valueOrNull ?? all.length;
     final topics = {for (final w in all) w.topic}.toList()..sort();
     final lang = ref.watch(nativeLangProvider);
+    // A filter narrows what is on screen, not what is on the server, so an
+    // active filter has to keep pulling pages or it looks like the bank ran
+    // out at whatever the first twenty happened to contain.
+    final filtering = _search.text.trim().isNotEmpty ||
+        _topic != null ||
+        _filter != _Filter.all;
 
     // The word bank is the one list in the app with no natural ceiling, so it
     // is built lazily: the header is one sliver and every word row is another,
@@ -145,9 +182,9 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
           color: AppColors.primary,
           backgroundColor: AppColors.card(d),
           onRefresh: () async {
-            ref.invalidate(myWordsProvider);
             ref.invalidate(dueCountProvider);
-            await Future<void>.delayed(const Duration(milliseconds: 350));
+            ref.invalidate(wordCountProvider);
+            await ref.read(wordBankProvider.notifier).reload();
           },
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -163,7 +200,7 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   SqEyebrow(trp('{n} сөз · {m} меңгерілді',
-                    {'n': '${all.length}', 'm': '$learned'})),
+                    {'n': '$total', 'm': '$learned'})),
                   const SizedBox(height: 1),
                   Text(tr('Сөздік'),
                     style: TextStyle(
@@ -172,10 +209,29 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
                 ],
               ),
             ),
-            SqSquareButton(PhosphorIconsBold.compass,
-              size: 42,
+            // EN-35 / KK-5: this was a bare 42pt compass glyph in the corner
+            // and nobody found it. It is the only way into the shared word
+            // catalogue, so it now says what it does.
+            SqLip(
+              fill: AppColors.card(d),
+              lip: AppColors.surfaceLip(d),
+              radius: 15,
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ExploreScreen()))),
+                MaterialPageRoute(builder: (_) => const ExploreScreen())),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(PhosphorIconsBold.compass,
+                    size: 18, color: AppColors.primaryDeep),
+                  const SizedBox(width: 7),
+                  Text(tr('Жаңа сөздер табу'),
+                    style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w800,
+                      color: AppColors.text(d))),
+                ],
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -321,9 +377,21 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
           const SizedBox(height: 14),
         ],
 
-        if (async.isLoading && all.isEmpty)
+        if (bank.loading && all.isEmpty)
           const Column(children: [
             SqShimmer(), SqShimmer(), SqShimmer(), SqShimmer()])
+        else if (bank.error != null && all.isEmpty)
+          SqEmpty(
+            icon: PhosphorIconsFill.warningCircle,
+            title: tr('Сөздік жүктелмеді'),
+            subtitle: bank.error,
+            action: SizedBox(
+              width: 200,
+              child: SqAction(tr('Қайталау'),
+                icon: PhosphorIconsBold.arrowClockwise,
+                onTap: () => ref.read(wordBankProvider.notifier).reload()),
+            ),
+          )
         else if (shown.isEmpty)
           SqEmpty(
             icon: all.isEmpty
@@ -346,7 +414,7 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
                 ]),
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 130),
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
                 sliver: SliverList.builder(
                   itemCount: shown.length,
                   itemBuilder: (_, i) => SqGroupRow(
@@ -355,6 +423,27 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
                     child: _WordRow(
                       word: shown[i], lang: lang, onDelete: _deleteWord),
                   ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 130),
+                sliver: SliverToBoxAdapter(
+                  child: !bank.exhausted && (bank.loading || all.isNotEmpty)
+                      // The scroll listener normally gets there first; this
+                      // is the fallback for a filter that hid every row of
+                      // the last page, which leaves nothing to scroll past.
+                      ? (bank.loading
+                          ? const SqShimmer(height: 44, margin: EdgeInsets.zero)
+                          : SqAction(
+                              filtering
+                                  ? tr('Тағы іздеу')
+                                  : tr('Тағы жүктеу'),
+                              icon: PhosphorIconsBold.arrowDown,
+                              tone: SqTone.ghost,
+                              height: 46,
+                              onTap: () =>
+                                  ref.read(wordBankProvider.notifier).loadMore()))
+                      : const SizedBox.shrink(),
                 ),
               ),
             ],

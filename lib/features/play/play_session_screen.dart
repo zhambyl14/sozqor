@@ -174,7 +174,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
   Future<void> _buildRound() async {
     final profile = ref.read(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
-    final lang = profile?.nativeLang ?? 'kk';
+    final lang = ref.read(nativeLangProvider);
     final kinds = widget.kinds ?? kindsFor(cefr);
 
     final words = ref.read(myWordsProvider).valueOrNull ?? const <Word>[];
@@ -247,7 +247,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
       pool: _pool,
       kinds: widget.kinds ?? kindsFor(profile?.cefrLevel ?? 'A1'),
       count: 20,
-      nativeLang: profile?.nativeLang ?? 'kk',
+      nativeLang: ref.read(nativeLangProvider),
     );
     if (more.isNotEmpty) _questions = [..._questions, ...more];
   }

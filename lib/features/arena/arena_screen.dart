@@ -53,7 +53,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   Future<List<Question>> _buildQuestions({int count = 10}) async {
     final profile = ref.read(myProfileProvider).valueOrNull;
     final cefr = profile?.cefrLevel ?? 'A1';
-    final lang = profile?.nativeLang ?? 'kk';
+    final lang = ref.read(nativeLangProvider);
 
     var pool = ref.read(levelPoolProvider).valueOrNull ?? const <DictEntry>[];
     if (pool.length < 12) {

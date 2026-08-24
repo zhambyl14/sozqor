@@ -121,7 +121,7 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
       pool: pool,
       kinds: kindsFor(profile?.cefrLevel ?? 'A1'),
       count: 4,
-      nativeLang: profile?.nativeLang ?? 'kk',
+      nativeLang: ref.read(nativeLangProvider),
     );
     if (questions.isEmpty) {
       sqSnack(context, tr('Бұл сөзге сұрақ құрастыру мүмкін болмады'), error: true);

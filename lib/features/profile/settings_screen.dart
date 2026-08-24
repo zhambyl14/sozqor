@@ -430,51 +430,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     unawaited(PushService.instance.onLanguageChanged());
     try {
       await ref.read(profileRepoProvider).setUiLang(chosen);
-      // The study language follows the interface by default — reading the
-      // app in Russian while every new word is still translated to Kazakh is
-      // what actually looked like "wrong-language content" to learners. A
-      // deliberate change on the "Оқу тілі" row right below still wins, since
-      // it always runs after this and simply overwrites it.
+      // native_lang is no longer a setting of its own — it is kept equal to
+      // the app language so any server-side job reading it (push copy, the
+      // Telegram bot) speaks the one language the learner chose.
       await ref.read(profileRepoProvider).setNativeLang(chosen);
       ref.invalidate(myProfileProvider);
     } catch (_) {/* the choice is already saved on this device */}
-  }
-
-  Future<void> _pickLang() async {
-    final current = ref.read(nativeLangProvider);
-    final chosen = await _sheet<String>(tr('Оқу тілі'), [
-      Text(tr('Ағылшын сөздері қай тілге аударылып көрсетіледі'),
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 12.5, height: 1.45, fontWeight: FontWeight.w600,
-          color: AppColors.text3(isDark(context)))),
-      const SizedBox(height: 16),
-      for (final l in [('kk', tr('Қазақша')), ('ru', tr('Орысша'))])
-        Padding(
-          padding: const EdgeInsets.only(bottom: 9),
-          child: SqPanel(
-            radius: 18,
-            padding: const EdgeInsets.all(15),
-            border: l.$1 == current ? AppColors.primaryEdge : null,
-            onTap: () => Navigator.of(context).pop(l.$1),
-            child: Row(
-              children: [
-                const SqTintBox(PhosphorIconsFill.translate, size: 36),
-                const SizedBox(width: 13),
-                Expanded(child: Text(tr(l.$2),
-                  style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w800))),
-                if (l.$1 == current)
-                  const Icon(PhosphorIconsFill.checkCircle,
-                    size: 20, color: AppColors.primary),
-              ],
-            ),
-          ),
-        ),
-    ]);
-    if (chosen != null) {
-      await _patch(() => ref.read(profileRepoProvider).setNativeLang(chosen));
-    }
   }
 
   /// Only ever shown to a signed-in account — a guest has nothing to "log
@@ -559,22 +520,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         Padding(
           padding: const EdgeInsets.only(left: 2, bottom: 9),
           child: SqEyebrow(tr('Тіл'))),
+        // 5.0 has exactly one language row. "Оқу тілі" used to sit right here
+        // as a second, independent setting, which is what let the interface
+        // be Kazakh while every word was translated to Russian — the
+        // mixed-language screen the whole release is meant to end.
         SqGroup(children: [
           SqTile(
             leading: const SqTintBox(PhosphorIconsFill.globeHemisphereEast,
               tint: AppColors.primary, size: 34),
             title: tr('Қосымша тілі'),
+            subtitle: tr('Бүкіл қосымша осы тілде'),
             trailing: _Value(AppLang.names[lang] ?? lang),
             chevron: true,
             onTap: _pickUiLang),
-          SqTile(
-            leading: const SqTintBox(PhosphorIconsFill.translate,
-              tint: AppColors.green, size: 34),
-            title: tr('Оқу тілі'),
-            trailing: _Value(
-              (p?.nativeLang ?? 'kk') == 'ru' ? tr('Орысша') : tr('Қазақша')),
-            chevron: true,
-            onTap: _busy ? null : _pickLang),
         ]),
         const SizedBox(height: 18),
 

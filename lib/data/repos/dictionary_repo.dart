@@ -1,4 +1,6 @@
 // lib/data/repos/dictionary_repo.dart
+import 'package:supabase_flutter/supabase_flutter.dart' show CountOption;
+
 import '../models/dict_entry.dart';
 import '../supa.dart';
 
@@ -55,8 +57,10 @@ class DictionaryRepo {
     int limit = 120,
   }) => search(cefr: cefr, topic: topic, limit: limit);
 
-  Future<int> totalWords() async {
-    final rows = await supa.from('dictionary').select('id').limit(1000);
-    return (rows as List).length;
-  }
+  /// A HEAD count. The old version selected 1000 ids and returned their
+  /// length, which both moved a thousand rows to produce one number and
+  /// silently reported 1000 forever once the shared dictionary passed that
+  /// size — the one number whose whole point is that it keeps growing.
+  Future<int> totalWords() =>
+      supa.from('dictionary').count(CountOption.exact);
 }

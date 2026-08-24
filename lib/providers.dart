@@ -138,9 +138,14 @@ final myKindsProvider = Provider<List<QKind>>((ref) {
 });
 
 /// Which own-language side ('kk' or 'ru') the learner trains against.
-/// Deliberately separate from the interface language.
-final nativeLangProvider = Provider<String>((ref) =>
-    ref.watch(myProfileProvider).valueOrNull?.nativeLang ?? 'kk');
+///
+/// 5.0 collapses the two language settings into one: there is no longer an
+/// "interface language" that can disagree with a "learning language". A
+/// learner who picked Russian reads Russian buttons *and* is asked Russian →
+/// English, never one of each. The profile still carries `native_lang` and it
+/// is still written, but it now only ever mirrors the chosen app language —
+/// nothing reads it as an independent setting.
+final nativeLangProvider = Provider<String>((ref) => ref.watch(langProvider));
 
 // ── Theme ──────────────────────────────────────────────────
 class ThemeCtrl extends StateNotifier<ThemeMode> {
@@ -209,6 +214,91 @@ final myWordsProvider = FutureProvider<List<Word>>((ref) async {
 
 final dueWordsProvider = FutureProvider<List<Word>>(
     (ref) => ref.watch(wordsRepoProvider).due());
+
+/// How many words the learner owns in total. The bank only ever holds the
+/// pages it has scrolled to, so the header count has to come from the server
+/// rather than from `List.length`.
+final wordCountProvider = FutureProvider<int>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(wordsRepoProvider).totalCount();
+});
+
+/// One growing page of the learner's own words (EN-36 / KK-5).
+///
+/// The bank used to hand a ListView every row the learner owned. Twenty at a
+/// time keeps the first paint immediate however large the bank gets, and the
+/// screen asks for the next twenty as it nears the bottom.
+class WordBankState {
+  final List<Word> words;
+  final bool loading;
+  /// True once the server returned a short page — there is nothing after this.
+  final bool exhausted;
+  final String? error;
+
+  const WordBankState({
+    this.words = const [],
+    this.loading = false,
+    this.exhausted = false,
+    this.error,
+  });
+
+  WordBankState copyWith({
+    List<Word>? words,
+    bool? loading,
+    bool? exhausted,
+    String? error,
+    bool clearError = false,
+  }) => WordBankState(
+    words: words ?? this.words,
+    loading: loading ?? this.loading,
+    exhausted: exhausted ?? this.exhausted,
+    error: clearError ? null : (error ?? this.error),
+  );
+}
+
+class WordBankCtrl extends StateNotifier<WordBankState> {
+  final Ref _ref;
+  WordBankCtrl(this._ref) : super(const WordBankState(loading: true)) {
+    loadMore();
+  }
+
+  Future<void> loadMore() async {
+    if (!mounted || state.exhausted) return;
+    if (state.words.isNotEmpty && state.loading) return;
+    final offset = state.words.length;
+    state = state.copyWith(loading: true, clearError: true);
+    try {
+      final page = await _ref.read(wordsRepoProvider)
+          .page(limit: kWordPageSize, offset: offset);
+      // The fetch outlives the provider whenever the tab is torn down
+      // mid-request — a sign-out, or a test that pumps one screen and ends.
+      // Writing state then throws, so every post-await write is guarded.
+      if (!mounted) return;
+      state = state.copyWith(
+        words: [...state.words, ...page],
+        loading: false,
+        // A page shorter than asked for is the end of the list; an exactly
+        // full page might be followed by more, so keep the door open.
+        exhausted: page.length < kWordPageSize,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      state = state.copyWith(loading: false, error: humanError(e));
+    }
+  }
+
+  Future<void> reload() async {
+    if (!mounted) return;
+    state = const WordBankState(loading: true);
+    await loadMore();
+  }
+}
+
+final wordBankProvider =
+    StateNotifierProvider<WordBankCtrl, WordBankState>((ref) {
+  ref.watch(authChangesProvider);
+  return WordBankCtrl(ref);
+});
 
 final dueCountProvider = FutureProvider<int>(
     (ref) => ref.watch(wordsRepoProvider).dueCount());
@@ -507,6 +597,10 @@ void refreshAll(WidgetRef ref) {
   ref.invalidate(myWordsProvider);
   ref.invalidate(dueWordsProvider);
   ref.invalidate(dueCountProvider);
+  ref.invalidate(wordCountProvider);
+  // The bank holds its own accumulated pages, so invalidating is not enough —
+  // it has to be told to fetch page one again.
+  ref.read(wordBankProvider.notifier).reload();
   ref.invalidate(dailyProgressProvider);
   ref.invalidate(weekStatsProvider);
   ref.invalidate(myLeagueProvider);

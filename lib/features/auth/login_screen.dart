@@ -189,13 +189,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    Text(_register ? S.joinUs : S.welcomeBack,
+                    Text(tr(_register ? S.joinUs : S.welcomeBack),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 24, fontWeight: FontWeight.w800,
                         letterSpacing: -0.7, color: AppColors.text(d))),
                     const SizedBox(height: 6),
-                    Text(S.slogan,
+                    Text(tr(S.slogan),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 13, fontWeight: FontWeight.w600,

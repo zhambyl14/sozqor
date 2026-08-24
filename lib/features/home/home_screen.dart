@@ -29,6 +29,7 @@ import '../../providers.dart';
 import '../../services/meta_store.dart';
 import '../../services/sozqor_ai.dart';
 import '../../services/speech.dart';
+import '../arena/leaderboard_screen.dart';
 import '../auth/guest_gate.dart';
 import '../play/play_session_screen.dart';
 import '../profile/friends_screen.dart';
@@ -80,6 +81,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (mounted) refreshAll(ref);
   }
 
+  /// The streak, its week and its freezes — the whole of EN-7 in one sheet,
+  /// opened from the fire chip that used to be only a number.
+  Future<void> _openStreak() async {
+    final p = ref.read(myProfileProvider).valueOrNull;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SqSheetGrip(),
+              Text(tr('Күнделікті серия'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.w800,
+                  color: AppColors.text(isDark(context)))),
+              const SizedBox(height: 18),
+              _StreakSheet(
+                streak: p?.streak ?? 0,
+                bestStreak: p?.bestStreak ?? 0,
+                freezes: ref.read(metaProvider).freezes,
+                onFreeze: () {
+                  Navigator.of(context).pop();
+                  _open(const ShopScreen());
+                },
+                onDayTap: () {
+                  Navigator.of(context).pop();
+                  _open(const ReportScreen());
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
@@ -102,19 +144,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           greeting: _greeting,
           profile: profile,
           onBell: () => _open(const ReportScreen()),
+          // EN-7 / KK-1: the seven-day strip used to sit on the page as its
+          // own "Апталық серия" panel while the fire chip counted the same
+          // streak two centimetres above it. There is one streak, so there is
+          // one place to read it — behind the chip.
+          onStreak: _openStreak,
         ),
         const SizedBox(height: 18),
 
         const GuestBanner(feature: GuestFeature.saveWord),
 
-        SqRise(child: _TodayPlan(profile: profile, due: due)),
-        const SizedBox(height: 16),
-
-        _StreakWeek(
-          freezes: meta.freezes,
-          onFreeze: () => _open(const ShopScreen()),
-          onDayTap: () => _open(const ReportScreen()),
-        ),
+        // EN-6: Today's Plan is the whole daily hub. The quest checklist and
+        // the daily challenge live inside it rather than as separate blocks
+        // repeating the same numbers further down the page.
+        SqRise(child: _TodayPlan(
+          profile: profile,
+          due: due,
+          quests: quests,
+          claimedQuests: claimedQuests,
+        )),
         const SizedBox(height: 14),
 
         SqEqualRow(
@@ -128,16 +176,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
         const SizedBox(height: 14),
-
-        SqSection(tr('Күнделікті тапсырма'),
-          trailingWidget: SqNum(
-            '${quests.where((q) => q.done).length}/${quests.length}',
-            size: 11, color: AppColors.text3(isDark(context)))),
-        SqGroup(children: [
-          for (final q in quests)
-            _QuestRow(quest: q, claimed: claimedQuests.contains(q.id)),
-        ]),
-        const SizedBox(height: 18),
 
         if (words.isNotEmpty)
           _WordOfDay(words: words, onOpen: _open)
@@ -217,9 +255,14 @@ class _Greeting extends ConsumerWidget {
   final String greeting;
   final Profile? profile;
   final VoidCallback onBell;
+  final VoidCallback onStreak;
 
   const _Greeting({
-    required this.greeting, required this.profile, required this.onBell});
+    required this.greeting,
+    required this.profile,
+    required this.onBell,
+    required this.onStreak,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -266,24 +309,28 @@ class _Greeting extends ConsumerWidget {
             ],
           ),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppColors.soft(AppColors.amber, d),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: AppColors.line(AppColors.amber, d)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                streak > 0 ? PhosphorIconsFill.fire : PhosphorIconsBold.fire,
-                size: 15,
-                color: streak > 0 ? AppColors.amber : AppColors.text4(d)),
-              const SizedBox(width: 5),
-              SqNum('$streak',
-                size: 14, color: AppColors.onSoft(AppColors.amber, d)),
-            ],
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onStreak,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.soft(AppColors.amber, d),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.line(AppColors.amber, d)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  streak > 0 ? PhosphorIconsFill.fire : PhosphorIconsBold.fire,
+                  size: 15,
+                  color: streak > 0 ? AppColors.amber : AppColors.text4(d)),
+                const SizedBox(width: 5),
+                SqNum('$streak',
+                  size: 14, color: AppColors.onSoft(AppColors.amber, d)),
+              ],
+            ),
           ),
         ),
         const SizedBox(width: 9),
@@ -299,7 +346,14 @@ class _Greeting extends ConsumerWidget {
 class _TodayPlan extends ConsumerWidget {
   final Profile? profile;
   final int due;
-  const _TodayPlan({required this.profile, required this.due});
+  final List<Quest> quests;
+  final List<String> claimedQuests;
+  const _TodayPlan({
+    required this.profile,
+    required this.due,
+    required this.quests,
+    required this.claimedQuests,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -312,7 +366,10 @@ class _TodayPlan extends ConsumerWidget {
     final beads = goal.clamp(4, 10);
     final beadsDone = (ratio * beads).round();
 
-    return SqInkCard(
+    final playedDaily = ref.watch(playedDailyProvider).valueOrNull ?? false;
+    final doneCount = quests.where((q) => q.done).length;
+
+    final card = SqInkCard(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -386,64 +443,152 @@ class _TodayPlan extends ConsumerWidget {
         ],
       ),
     );
+
+    // The checklist reads as the lower half of the same block: no section
+    // header, no gap wide enough to look like a new topic. Everything the
+    // learner owes today is one thing to look at.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        card,
+        const SizedBox(height: 10),
+        SqGroup(children: [
+          for (final q in quests)
+            _QuestRow(quest: q, claimed: claimedQuests.contains(q.id)),
+          // EN-6: the daily challenge belongs to the plan. Arena keeps its
+          // tile as a link to the results board, but the place you are told
+          // to play it is here, with everything else due today.
+          SqTile(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+            leading: SqTintBox(
+              playedDaily
+                  ? PhosphorIconsFill.checkCircle
+                  : PhosphorIconsFill.globeHemisphereEast,
+              tint: playedDaily ? AppColors.green : AppColors.sky,
+              size: 32),
+            title: tr('Күнделікті сынақ'),
+            titleColor: playedDaily
+                ? AppColors.text4(isDark(context))
+                : AppColors.text(isDark(context)),
+            strike: playedDaily,
+            trailing: playedDaily
+                ? SqNum(tr('Нәтижені көр'),
+                    size: 11.5, color: AppColors.text3(isDark(context)))
+                : SqBadge(tr('Ойнау'), tint: AppColors.sky, solid: true),
+            onTap: () async {
+              if (playedDaily) {
+                await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const LeaderboardScreen(
+                    initialTab: LeaderboardTab.daily)));
+                return;
+              }
+              if (!await requireAccount(context, ref, GuestFeature.daily)) {
+                return;
+              }
+              if (!context.mounted) return;
+              await Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const PlaySessionScreen(mode: PlayMode.daily)));
+              if (context.mounted) {
+                ref.invalidate(playedDailyProvider);
+                refreshAll(ref);
+              }
+            },
+          ),
+        ]),
+        if (doneCount == quests.length && playedDaily) ...[
+          const SizedBox(height: 9),
+          Center(
+            child: SqChip(
+              tr('Бүгінгі жоспар толық орындалды'),
+              icon: PhosphorIconsFill.confetti,
+              tint: AppColors.green,
+              radius: 999,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 
 // ── Weekly streak strip ────────────────────────────────────
 
-class _StreakWeek extends ConsumerWidget {
+/// The one streak surface (EN-7 / KK-1).
+///
+/// 4.0 spread the same idea over three places at once: a fire chip counting
+/// `profiles.streak`, an "Апталық серия" panel drawing the same seven days
+/// underneath it, and a third, purely local count on the chest card. The
+/// panel is now the body of this sheet, reached from the chip, so the number
+/// and the days that produced it are read in one place.
+class _StreakSheet extends ConsumerWidget {
+  final int streak;
+  final int bestStreak;
   final int freezes;
   final VoidCallback onFreeze;
   final VoidCallback onDayTap;
-  const _StreakWeek({
-    required this.freezes, required this.onFreeze, required this.onDayTap});
+
+  const _StreakSheet({
+    required this.streak,
+    required this.bestStreak,
+    required this.freezes,
+    required this.onFreeze,
+    required this.onDayTap,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final d = isDark(context);
     final week = ref.watch(weekStatsProvider).valueOrNull ?? const <DayStat>[];
 
-    return SqPanel(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Icon(
+              streak > 0 ? PhosphorIconsFill.fire : PhosphorIconsBold.fire,
+              size: 26,
+              color: streak > 0 ? AppColors.amber : AppColors.text4(d)),
+            const SizedBox(width: 8),
+            SqCountUp(streak, size: 40, color: AppColors.text(d)),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          trp('Ең ұзақ сериям: {n} күн', {'n': '$bestStreak'}),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12.5, fontWeight: FontWeight.w600,
+            color: AppColors.text3(d))),
+        const SizedBox(height: 18),
+        if (week.isEmpty)
+          const SqShimmer(height: 52, margin: EdgeInsets.zero)
+        else
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Flexible(
-                child: Text(tr('Апталық серия'),
-                  style: TextStyle(
-                    fontSize: 13.5, fontWeight: FontWeight.w800,
-                    color: AppColors.text(d))),
-              ),
-              const SizedBox(width: 10),
-              SqChip(
-                freezes > 0
-                    ? trp('Мұздату × {n}', {'n': '$freezes'})
-                    : tr('Мұздатқыш ал'),
-                icon: PhosphorIconsFill.snowflake,
-                tint: AppColors.sky,
-                radius: 999,
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                onTap: onFreeze,
-              ),
+              for (var i = 0; i < week.length; i++) ...[
+                Expanded(child: _DayCell(stat: week[i], onTap: onDayTap)),
+                if (i != week.length - 1) const SizedBox(width: 6),
+              ],
             ],
           ),
-          const SizedBox(height: 13),
-          if (week.isEmpty)
-            const SqShimmer(height: 52, margin: EdgeInsets.zero)
-          else
-            Row(
-              children: [
-                for (var i = 0; i < week.length; i++) ...[
-                  Expanded(child: _DayCell(stat: week[i], onTap: onDayTap)),
-                  if (i != week.length - 1) const SizedBox(width: 6),
-                ],
-              ],
-            ),
-        ],
-      ),
+        const SizedBox(height: 16),
+        SqChip(
+          freezes > 0
+              ? trp('Мұздату × {n}', {'n': '$freezes'})
+              : tr('Мұздатқыш ал'),
+          icon: PhosphorIconsFill.snowflake,
+          tint: AppColors.sky,
+          radius: 999,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          onTap: onFreeze,
+        ),
+      ],
     );
   }
 }

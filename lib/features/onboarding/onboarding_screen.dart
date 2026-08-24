@@ -49,7 +49,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final p = ref.read(myProfileProvider).valueOrNull;
     if (p != null) {
       _name.text = p.displayName.trim().isEmpty ? '' : p.displayName;
-      _lang = p.nativeLang;
+      // Deliberately not seeded from p.nativeLang: with one app language,
+      // whatever the learner is reading right now is the answer, and a stale
+      // row from a half-finished earlier run must not overrule it.
       _level = p.cefrLevel;
       _goal = p.dailyGoal;
     }
@@ -59,6 +61,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   void dispose() { _name.dispose(); super.dispose(); }
 
   void _to(int step) => setState(() => _step = step.clamp(0, 2));
+
+  /// Picking a language on the very first screen switches the whole app
+  /// there and then (EN-3): the rest of onboarding, the level test and the
+  /// sign-in screen behind it all repaint in the chosen language without a
+  /// restart, because every screen watches [langProvider].
+  Future<void> _pickLang(String l) async {
+    setState(() => _lang = l);
+    await ref.read(langProvider.notifier).set(l);
+  }
 
   Future<void> _haveAccount() async {
     final ok = await sqConfirm(context,
@@ -88,6 +99,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       await profiles.update({
         'display_name': _name.text.trim(),
         'cefr_level': _level,
+        // One language, written to both columns so nothing server-side can
+        // later disagree with what the learner picked here.
+        'ui_lang': _lang,
         'native_lang': _lang,
         'daily_goal': _goal,
       });
@@ -165,7 +179,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   0 => _StepName(
                     name: _name,
                     lang: _lang,
-                    onLang: (l) => setState(() => _lang = l),
+                    onLang: _pickLang,
                     onHaveAccount: _haveAccount),
                   1 => _StepLevel(
                     selected: _level,

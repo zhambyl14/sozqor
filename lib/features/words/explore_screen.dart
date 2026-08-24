@@ -16,7 +16,7 @@ import '../../core/constants/game_meta.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/dict_entry.dart';
-import '../../data/models/word.dart';
+import '../../data/repos/words_repo.dart' show kWordPageSize;
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/sozqor_ai.dart';
@@ -44,6 +44,19 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   bool _adding = false;
   bool _growing = false;
 
+  /// English keys the learner already has, read from the server rather than
+  /// from the bank's loaded pages — the bank is paged now, so its in-memory
+  /// list is not a complete answer to "do I own this?".
+  Set<String> _owned = const {};
+
+  /// Rows pulled from the server so far, counting the ones filtered out for
+  /// being already owned. This is the search offset; `_entries.length` is not,
+  /// or every page would re-fetch the words it just hid.
+  int _fetched = 0;
+  bool _exhausted = false;
+  bool _loadingMore = false;
+  String? _error;
+
   @override
   void initState() {
     super.initState();
@@ -56,21 +69,69 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   @override
   void dispose() { _search.dispose(); super.dispose(); }
 
+  /// Starts the list over for the current level / topic / query.
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+      _entries = const [];
+      _fetched = 0;
+      _exhausted = false;
+    });
     try {
-      final list = await ref.read(dictRepoProvider).search(
-        query: _search.text.trim(),
-        cefr: [_level],
-        topic: _topic,
-        limit: 120,
-      );
-      if (mounted) setState(() => _entries = list);
-    } catch (e) {
-      if (mounted) sqSnack(context, humanError(e), error: true);
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      _owned = await ref.read(wordsRepoProvider).ownedEnglish();
+    } catch (_) {
+      // Not fatal: without it the list shows owned words with a "Бар" badge
+      // instead of hiding them, which is the old behaviour.
+      _owned = const {};
     }
+    await _fetchPage();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  /// Pulls one page and appends whatever survives the owned filter (EN-39).
+  ///
+  /// A page can be entirely words the learner already has, which would look
+  /// like the catalogue ending early, so it keeps asking — up to a small
+  /// bound — until something lands or the server runs out.
+  Future<void> _fetchPage() async {
+    if (_exhausted) return;
+    var attempts = 0;
+    try {
+      while (attempts < 5 && !_exhausted) {
+        attempts++;
+        final page = await ref.read(dictRepoProvider).search(
+          query: _search.text.trim(),
+          cefr: [_level],
+          topic: _topic,
+          limit: kWordPageSize,
+          offset: _fetched,
+        );
+        _fetched += page.length;
+        if (page.length < kWordPageSize) _exhausted = true;
+
+        final known = _entries.map((e) => e.en.toLowerCase().trim()).toSet();
+        final fresh = page
+            .where((e) => !_owned.contains(e.en.toLowerCase().trim()))
+            .where((e) => known.add(e.en.toLowerCase().trim()))
+            .toList();
+
+        if (fresh.isNotEmpty) {
+          if (!mounted) return;
+          setState(() => _entries = [..._entries, ...fresh]);
+          return;
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = humanError(e));
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || _exhausted) return;
+    setState(() => _loadingMore = true);
+    await _fetchPage();
+    if (mounted) setState(() => _loadingMore = false);
   }
 
   /// Fetches more words for this level+topic and APPENDS them under what is
@@ -100,10 +161,12 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
         exclude: seen,
       );
 
-      // The server can still answer with something already on screen; the
-      // list must never grow a duplicate.
+      // The server can still answer with something already on screen, or
+      // with a word the learner saved long ago; the list must never grow a
+      // duplicate and must never re-offer something already owned (EN-39).
       final known = _entries.map((e) => e.en.toLowerCase().trim()).toSet();
       final added = fresh
+          .where((e) => !_owned.contains(e.en.toLowerCase().trim()))
           .where((e) => known.add(e.en.toLowerCase().trim()))
           .toList();
 
@@ -139,6 +202,9 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
           ? tr('Барлығы сөздігіңде бар екен')
           : trp('{p1} сөз қосылды · +{p2} XP', {'p1': '$n', 'p2': '${n * 10}'}));
       setState(_picked.clear);
+      // What was just saved is no longer a word to discover, so the list is
+      // rebuilt without it rather than left showing stale rows.
+      await _load();
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     } finally {
@@ -160,10 +226,6 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
       }
     });
     final d = isDark(context);
-    final owned = {
-      for (final w in ref.watch(myWordsProvider).valueOrNull ?? const <Word>[])
-        w.en.toLowerCase()
-    };
     final myLevel = ref.watch(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
     final allowed = visibleCefrFor(myLevel);
     final lang = ref.watch(nativeLangProvider);
@@ -329,10 +391,24 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                         SqShimmer(), SqShimmer(), SqShimmer(),
                         SqShimmer(), SqShimmer(),
                       ])
-                  : _entries.isEmpty
+                  : _error != null && _entries.isEmpty
+                      ? SqEmpty(
+                          icon: PhosphorIconsFill.warningCircle,
+                          title: tr('Сөз базасы жүктелмеді'),
+                          subtitle: _error,
+                          action: SizedBox(
+                            width: 220,
+                            child: SqAction(tr('Қайталау'),
+                              icon: PhosphorIconsBold.arrowClockwise,
+                              onTap: _load),
+                          ),
+                        )
+                      : _entries.isEmpty
                       ? SqEmpty(
                           icon: PhosphorIconsFill.magnifyingGlass,
-                          title: tr('Бұл бөлімде сөз аз'),
+                          title: _owned.isEmpty
+                              ? tr('Бұл бөлімде сөз аз')
+                              : tr('Мұндағы сөздер сөздігіңде бар'),
                           subtitle:
                               tr('Осы деңгей мен тақырып бойынша жаңа сөздер '
                                  'тауып беруге болады'),
@@ -342,7 +418,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                               icon: PhosphorIconsFill.sparkle,
                               tone: SqTone.green,
                               busy: _growing,
-                              onTap: _grow),
+                              onTap: _growing ? null : _grow),
                           ),
                         )
                       : ListView(
@@ -353,7 +429,10 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                                 _EntryRow(
                                   entry: e,
                                   lang: lang,
-                                  owned: owned.contains(e.en.toLowerCase()),
+                                  // Owned words are filtered out before they
+                                  // reach this list (EN-39), so nothing here
+                                  // is already saved.
+                                  owned: false,
                                   picked: _picked
                                       .containsKey(e.en.toLowerCase()),
                                   onToggle: () => setState(() {
@@ -367,13 +446,36 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
                                 ),
                             ]),
                             const SizedBox(height: 16),
-                            SqAction(
-                              _growing ? tr('Ізделуде…') : tr('Тағы сөз тап'),
-                              icon: PhosphorIconsFill.sparkle,
-                              tone: SqTone.ghost,
-                              height: 50,
-                              busy: _growing,
-                              onTap: _growing ? null : _grow),
+
+                            // EN-37: the catalogue is walked twenty at a time,
+                            // and only once it is genuinely used up does the
+                            // AI get asked for words nobody has stored yet.
+                            if (!_exhausted)
+                              SqAction(
+                                _loadingMore
+                                    ? tr('Жүктелуде…')
+                                    : tr('Тағы жүктеу'),
+                                icon: PhosphorIconsBold.arrowDown,
+                                tone: SqTone.ghost,
+                                height: 50,
+                                busy: _loadingMore,
+                                onTap: _loadingMore ? null : _loadMore)
+                            else ...[
+                              Text(
+                                tr('Базадағы сөздер таусылды'),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w600,
+                                  color: AppColors.text3(d))),
+                              const SizedBox(height: 10),
+                              SqAction(
+                                _growing ? tr('Ізделуде…') : tr('Тағы сөз тап'),
+                                icon: PhosphorIconsFill.sparkle,
+                                tone: SqTone.ghost,
+                                height: 50,
+                                busy: _growing,
+                                onTap: _growing ? null : _grow),
+                            ],
                           ],
                         ),
             ),

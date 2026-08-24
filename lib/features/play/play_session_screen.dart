@@ -129,11 +129,16 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
   @override
   void initState() {
     super.initState();
+    // EN-12: nothing may pop over a live question. The invite overlay reads
+    // this and holds anything that arrives until the round is over.
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => ref.read(busyProvider.notifier).state = true);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
   void dispose() {
+    ref.read(busyProvider.notifier).state = false;
     _ticker?.cancel();
     Speech.instance.stop();
     super.dispose();

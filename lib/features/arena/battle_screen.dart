@@ -126,11 +126,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   @override
   void initState() {
     super.initState();
+    // EN-12: nothing may pop over a live question. The invite overlay reads
+    // this and holds anything that arrives until the round is over.
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => ref.read(busyProvider.notifier).state = true);
     WidgetsBinding.instance.addPostFrameCallback((_) => _begin());
   }
 
   @override
   void dispose() {
+    ref.read(busyProvider.notifier).state = false;
     _tick?.cancel();
     _botTimer?.cancel();
     _awaitOpp?.cancel();
@@ -197,6 +202,18 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   void _watchRow() {
     _watch = ref.read(battleRepoProvider).watch(_battle.id).listen((b) {
       if (b == null || !mounted) return;
+
+      // The other side turned the invitation down — either deliberately, or
+      // because they were mid-round and the overlay held it, or because they
+      // muted the sender. Whichever it was, waiting out a match nobody is
+      // going to play is worse than being told (EN-12).
+      if (b.status == 'cancelled' && !_finished) {
+        _tick?.cancel();
+        sqSnack(context, tr('Досың бос емес — кейінірек шақыр'));
+        Navigator.of(context).maybePop();
+        return;
+      }
+
       setState(() {
         _battle = b;
         final opp = b.oppScore(_uid);

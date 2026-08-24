@@ -82,6 +82,34 @@ class BattleRepo {
     return row == null ? null : Battle.fromMap(row);
   }
 
+  /// Friend battles somebody has just aimed at this user (EN-12 / KK-2).
+  ///
+  /// A live stream rather than a poll, because an invitation is only worth
+  /// anything while the person who sent it is still waiting. Everything the
+  /// row cannot express — is it recent, have I already played it, have I
+  /// muted this sender — is decided by the caller.
+  Stream<List<Battle>> watchInvites() {
+    final uid = currentUid;
+    if (uid == null) return Stream.value(const []);
+    return supa
+        .from('battles')
+        .stream(primaryKey: ['id'])
+        .eq('p2', uid)
+        .map((rows) => rows
+            .map((r) => Battle.fromMap(Map<String, dynamic>.from(r)))
+            .where((b) => b.mode == 'friend' && b.status == 'active')
+            .where((b) => !b.iAmDone(uid))
+            .toList());
+  }
+
+  /// Turns down an invitation. The row is cancelled rather than deleted so
+  /// the sender's own stream sees it happen and can say what became of it —
+  /// which is how "your friend is busy" reaches them without a schema change.
+  Future<void> declineInvite(String battleId) async {
+    await supa.from('battles')
+        .update({'status': 'cancelled'}).eq('id', battleId);
+  }
+
   Stream<Battle?> watch(String id) => supa
       .from('battles')
       .stream(primaryKey: ['id'])

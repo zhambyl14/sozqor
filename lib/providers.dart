@@ -444,6 +444,44 @@ final battleHistoryProvider = FutureProvider<List<Battle>>(
 final pendingInvitesProvider = FutureProvider<List<Battle>>(
     (ref) => ref.watch(battleRepoProvider).pendingInvites());
 
+/// True while the learner is inside something a popup must not land on top of
+/// (EN-12): a battle, a ranked match, a timed round.
+///
+/// A battle invitation that covers the question you are answering costs you
+/// the round, so it waits. Set by the screens that own an uninterruptible
+/// moment, cleared when they close.
+final busyProvider = StateProvider<bool>((_) => false);
+
+/// Senders this device is ignoring, and until when (EN-14 / KK-2).
+///
+/// Kept on the device rather than the server on purpose: it is a two-minute
+/// "stop poking me", not a block, and it should not outlive the annoyance or
+/// follow anybody around. The map is keyed by sender id.
+final mutedInvitersProvider =
+    StateNotifierProvider<MutedInvitersCtrl, Map<String, DateTime>>(
+        (_) => MutedInvitersCtrl());
+
+class MutedInvitersCtrl extends StateNotifier<Map<String, DateTime>> {
+  MutedInvitersCtrl() : super(const {});
+
+  static const window = Duration(minutes: 2);
+
+  void mute(String userId) {
+    state = {...state, userId: DateTime.now().add(window)};
+  }
+
+  bool isMuted(String userId) {
+    final until = state[userId];
+    return until != null && until.isAfter(DateTime.now());
+  }
+}
+
+/// Friend battles aimed at this user right now, live.
+final incomingInvitesProvider = StreamProvider<List<Battle>>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(battleRepoProvider).watchInvites();
+});
+
 final unlockedAchievementsProvider = FutureProvider<Set<String>>(
     (ref) => ref.watch(profileRepoProvider).unlockedAchievements());
 

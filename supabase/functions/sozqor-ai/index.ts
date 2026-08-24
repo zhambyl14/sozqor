@@ -690,6 +690,10 @@ Deno.serve(async (req) => {
     // probing lives in the separate `ai-probe` function.
     if (task === "health") {
       return ok({
+        freerouter: FREEROUTER_KEY.length > 0,
+        freerouter_models: FREEROUTER_KEY
+          ? [FREEROUTER_PRIMARY, FREEROUTER_SECOND]
+          : null,
         openai: OPENAI_KEY.length > 0,
         openai_model: OPENAI_KEY ? OPENAI_MODEL : null,
         openrouter: OPENROUTER_KEY.length > 0,

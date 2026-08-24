@@ -20,6 +20,7 @@ must **not** be run twice.
 | 4 | `v5_coins_currency.sql` | EN-42 / KK-6 | The shop still spends XP while the UI says coins — **the one real mismatch**, so run this in the same sitting as deploying the app |
 | 5 | `v5_teams.sql` | EN-24 / EN-25 / EN-26 / KK-4 — teams, the weekly team challenge and the clan war | The team screens show "команда жүйесі әлі қосылмаған" and nothing else |
 | 6 | `v5_translation_review.sql` | EN-49 / EN-50 / KK-8 — the moderator queue behind the translation gate | The gate still works and still refuses transliterations; the refusals are simply not recorded anywhere |
+| 7 | `v5_league_elo.sql` | EN-19 / KK-3 — the league becomes a rating ladder | The league still ranks on weekly XP and the band never changes with your rating; matchmaking ignores bands. **Run after #1** — it replaces a function that file introduces |
 
 `profiles_guard.sql` and `device_tokens.sql` are already applied; they are kept
 for reference.

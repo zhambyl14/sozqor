@@ -33,6 +33,7 @@ import 'battle_screen.dart';
 import 'clan_screen.dart';
 import 'leaderboard_screen.dart';
 import 'league_screen.dart';
+import 'match_result_screen.dart';
 import 'tournament_screen.dart';
 
 enum _Opponent { ranked, bot, friend }
@@ -965,14 +966,18 @@ class _HistoryRow extends StatelessWidget {
                   color: delta > 0 ? AppColors.green : AppColors.red),
             ],
           ),
-          if (canChallenge) ...[
-            const SizedBox(width: 8),
-            SqSquareButton(PhosphorIconsFill.sword,
-              size: 30,
-              onTap: () => onChallenge(battle)),
-          ],
+          const SizedBox(width: 6),
+          Icon(PhosphorIconsBold.caretRight,
+            size: 14, color: AppColors.text4(d)),
         ],
       ),
+      // EN-28: the row opens the match. Everything the battle contained —
+      // the opponent, the answer counts, the duration, the rating change —
+      // used to exist only for the few seconds the post-match screen was up.
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => MatchResultScreen(
+          battle: battle,
+          onChallenge: canChallenge ? onChallenge : null))),
     );
   }
 }

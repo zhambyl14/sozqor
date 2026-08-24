@@ -94,6 +94,14 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   bool _submitting = false;
   bool _oppFinished = false;
 
+  /// The opponent left and the server awarded this match on their forfeit.
+  bool _oppForfeited = false;
+
+  /// Waiting ran out without the match settling at all — the opponent never
+  /// submitted and the server would not yet call it. The result screen says
+  /// so instead of showing a spinner for ever.
+  bool _oppGaveUp = false;
+
   DateTime _qStart = DateTime.now();
   List<Achievement> _unlocked = const [];
 
@@ -383,11 +391,39 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     _awaitOpp = Timer.periodic(const Duration(seconds: 3), (t) async {
       if (!mounted || ++tries > 40) {
         t.cancel();
+        // Two minutes of waiting used to end in silence: the timer stopped,
+        // no state changed, and the result screen sat on "waiting" for ever
+        // while neither rating moved. Claiming the forfeit is what settles
+        // it (EN-20) — the server still checks the grace period itself, so
+        // an opponent who was merely slow is not robbed of their match.
+        if (mounted) setState(() => _oppGaveUp = true);
         return;
       }
       final fresh = await ref.read(battleRepoProvider).byId(_battle.id)
           .catchError((_) => null);
       if (!mounted || fresh == null) return;
+
+      // Past the grace period the win is claimable. The server is the judge:
+      // it returns the battle untouched until the opponent has genuinely run
+      // out of time, so calling this early costs nothing.
+      if (!fresh.oppIsDone(_uid) && tries >= 8) {
+        final settled = await ref.read(battleRepoProvider)
+            .claimForfeit(_battle.id)
+            .catchError((_) => fresh);
+        if (!mounted) return;
+        if (settled.isFinished) {
+          t.cancel();
+          setState(() {
+            _battle = settled;
+            _oppFinished = true;
+            _oppForfeited = true;
+            _oppScore = settled.oppScore(_uid);
+          });
+          refreshAll(ref);
+          ref.invalidate(battleHistoryProvider);
+        }
+        return;
+      }
       if (!fresh.oppIsDone(_uid)) return;
 
       t.cancel();
@@ -457,6 +493,8 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                       // on "waiting" after the opponent had visibly finished.
                       oppFinished:
                           _isBot || _oppFinished || _battle.oppIsDone(_uid),
+                      oppForfeited: _oppForfeited,
+                      oppGaveUp: _oppGaveUp,
                       correct: _correct,
                       total: _questions.length,
                       rounds: _rounds,
@@ -834,6 +872,10 @@ class _BattleResult extends ConsumerWidget {
   final int myScore, oppScore, correct, total;
   final List<_Round> rounds;
   final bool oppFinished, submitting, isBot;
+  /// The opponent left and the server settled the match on their forfeit.
+  final bool oppForfeited;
+  /// The wait ran out with nothing settled — see [_oppGaveUp].
+  final bool oppGaveUp;
   final List<Achievement> unlocked;
   final VoidCallback onRematch, onClose;
 
@@ -843,7 +885,8 @@ class _BattleResult extends ConsumerWidget {
     required this.oppFinished, required this.correct, required this.total,
     required this.rounds, required this.isBot,
     required this.unlocked, required this.submitting,
-    required this.onRematch, required this.onClose});
+    required this.onRematch, required this.onClose,
+    this.oppForfeited = false, this.oppGaveUp = false});
 
   bool get _won  => oppFinished && myScore > oppScore;
   bool get _lost => oppFinished && myScore < oppScore;
@@ -889,7 +932,9 @@ class _BattleResult extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Text(
                   !oppFinished
-                      ? tr('Қарсыласты күтудеміз')
+                      ? (oppGaveUp
+                          ? tr('Қарсылас оралмады')
+                          : tr('Қарсыласты күтудеміз'))
                       : _won ? tr('Жеңдің!')
                              : _lost ? tr('Ұтылдың') : tr('Тең түсті'),
                   style: const TextStyle(
@@ -898,8 +943,13 @@ class _BattleResult extends ConsumerWidget {
                 const SizedBox(height: 4),
                 Text(
                   !oppFinished
-                      ? tr('Ол ойнап болған соң нәтиже шығады')
-                      : trp('{name}-мен {my} : {opp} есебі', {
+                      ? (oppGaveUp
+                          ? tr('Ойын есептелмеді. Кейінірек қайта көр.')
+                          : tr('Ол ойнап болған соң нәтиже шығады'))
+                      : oppForfeited
+                          ? trp('{name} ойыннан кетті — жеңіс сенікі',
+                              {'name': oppName})
+                          : trp('{name}-мен {my} : {opp} есебі', {
                           'name': oppName,
                           'my': '$myScore',
                           'opp': '$oppScore',

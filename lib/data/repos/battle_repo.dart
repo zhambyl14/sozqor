@@ -105,6 +105,20 @@ class BattleRepo {
     return Battle.fromMap(Map<String, dynamic>.from(row as Map));
   }
 
+  /// Claims the win when an opponent walks away mid-match (EN-20 / KK-3).
+  ///
+  /// The server decides, not the caller: it checks that this player really
+  /// has submitted, that the opponent still has not, and that the grace
+  /// period has run out. Before this, an opponent who closed the app left the
+  /// match 'active' for ever and neither rating moved — the literal report in
+  /// the PRD. Returns the battle unchanged while the grace period is still
+  /// running, so it is safe to call on a timer.
+  Future<Battle> claimForfeit(String battleId) async {
+    final row = await supa.rpc('claim_battle_forfeit',
+        params: {'p_battle': battleId});
+    return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+  }
+
   /// Recent finished battles for the profile history list.
   Future<List<Battle>> history({int limit = 20}) async {
     final uid = currentUid;

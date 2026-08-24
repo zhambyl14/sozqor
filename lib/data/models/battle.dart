@@ -22,6 +22,10 @@ class Battle {
   final int  p1EloDelta, p2EloDelta;
   final String cefr;
   final DateTime createdAt;
+  /// When the match began and ended. Both are nullable: a battle that is
+  /// still waiting has no start, and one that never settled has no end. The
+  /// reopened result screen needs them to show a duration (EN-28).
+  final DateTime? startedAt, endedAt;
 
   const Battle({
     required this.id,
@@ -47,6 +51,8 @@ class Battle {
     this.p1EloDelta = 0,
     this.p2EloDelta = 0,
     this.cefr = 'A1',
+    this.startedAt,
+    this.endedAt,
   });
 
   factory Battle.fromMap(Map<String, dynamic> m) => Battle(
@@ -76,6 +82,8 @@ class Battle {
     p2EloDelta:(m['p2_elo_delta'] ?? 0) as int,
     cefr:      (m['cefr'] ?? 'A1').toString(),
     createdAt: DateTime.tryParse('${m['created_at']}') ?? DateTime.now(),
+    startedAt: DateTime.tryParse('${m['started_at']}'),
+    endedAt:   DateTime.tryParse('${m['ended_at']}'),
   );
 
   bool amHost(String uid) => p1 == uid;

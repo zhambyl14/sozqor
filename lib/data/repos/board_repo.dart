@@ -104,57 +104,46 @@ class BoardRepo {
   Future<List<BoardRow>> friends() async =>
       _rows(await supa.rpc('my_friends'));
 
-  /// People worth adding, for a friends screen nobody has searched on yet.
-  ///
-  /// `search_users` deliberately skips guest accounts — they are every one of
-  /// them called "Қонақ", so searching over them would answer with dozens of
-  /// identical rows — and almost every account is a guest until it is
-  /// claimed. The screen opened on an empty search box over that set, so the
-  /// honest outcome of using it was "nobody exists", which is what made
-  /// friends read as a feature that does not work. Offering the claimed
-  /// accounts up front shows the same set a search can actually reach,
-  /// without the guessing.
-  Future<List<BoardRow>> suggestedPeople({int limit = 12}) async {
-    final uid = currentUid;
-    var q = supa
-        .from('profiles')
-        .select('id, username, display_name, avatar_emoji, cefr_level, xp')
-        .eq('is_guest', false);
-    if (uid != null) q = q.neq('id', uid);
-    final rows = await q.order('xp', ascending: false).limit(limit);
-    return [
-      for (final r in rows as List)
-        BoardRow(
-          userId:      ((r as Map)['id'] ?? '').toString(),
-          username:    (r['username'] ?? '').toString(),
-          displayName: (r['display_name'] ?? '').toString(),
-          avatarEmoji: (r['avatar_emoji'] ?? '🦊').toString(),
-          cefrLevel:   (r['cefr_level'] ?? 'A1').toString(),
-          value:       ((r['xp'] ?? 0) as num).toInt(),
-          rank:        0,
-        ),
-    ];
-  }
-
+  /// Finds people by handle (EN-16). The server requires two characters and
+  /// skips guest accounts, so this can no longer be used to page through
+  /// everybody who has ever installed the app.
   Future<List<BoardRow>> searchUsers(String query) async =>
       _rows(await supa.rpc('search_users',
           params: {'p_query': query, 'p_limit': 20}));
 
-  Future<void> addFriend(String userId) async {
-    final uid = currentUid;
-    if (uid == null) return;
-    // an incoming request from the same person is accepted instead
-    final incoming = await supa.from('friendships').select('id')
-        .eq('requester', userId).eq('addressee', uid).maybeSingle();
-    if (incoming != null) {
-      await supa.from('friendships')
-          .update({'status': 'accepted'}).eq('id', incoming['id']);
-      return;
-    }
-    await supa.from('friendships').upsert({
-      'requester': uid, 'addressee': userId, 'status': 'accepted',
-    }, onConflict: 'requester,addressee');
+  /// Asks somebody to be friends (EN-15 / KK-2).
+  ///
+  /// This used to write `status: 'accepted'` straight into `friendships` from
+  /// the client, so anybody could make themselves anybody's friend with no
+  /// say in it — and that roster is what feeds the battle-invite surface and
+  /// the team standing. The decision now belongs to the person being asked.
+  ///
+  /// Returns what the server did: 'pending' (asked), 'friends' (they had
+  /// already asked, so this accepted it), or 'blocked'.
+  Future<String> sendFriendRequest(String userId) async {
+    final res = await supa.rpc('send_friend_request', params: {
+      'p_user': userId,
+    });
+    return (res ?? 'pending').toString();
   }
+
+  /// Answers a request that was sent to this user. [id] is the row id, which
+  /// [friendRequests] carries in `value`.
+  Future<String> respondToRequest(int id, {required bool accept}) async {
+    final res = await supa.rpc('respond_friend_request', params: {
+      'p_id': id, 'p_accept': accept,
+    });
+    return (res ?? '').toString();
+  }
+
+  /// Requests waiting on an answer from this user. `value` is the row id.
+  Future<List<BoardRow>> friendRequests() async =>
+      _rows(await supa.rpc('my_friend_requests'));
+
+  /// Requests this user has sent and nobody has answered yet, so the button
+  /// can say "sent" rather than offer to send again.
+  Future<List<BoardRow>> sentRequests() async =>
+      _rows(await supa.rpc('my_sent_requests'));
 
   Future<void> removeFriend(String userId) async {
     final uid = currentUid;

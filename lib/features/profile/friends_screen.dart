@@ -35,9 +35,17 @@ final _friendsWornProvider =
       .worn(rows.map((r) => r.userId).toList());
 });
 
-/// Claimed accounts to offer before anybody has typed a search.
-final _suggestedProvider = FutureProvider<List<BoardRow>>(
-    (ref) => ref.watch(boardRepoProvider).suggestedPeople());
+/// Requests waiting on an answer from this user. `value` carries the row id.
+final friendRequestsProvider = FutureProvider<List<BoardRow>>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(boardRepoProvider).friendRequests();
+});
+
+/// Requests this user has sent that nobody has answered yet.
+final sentRequestsProvider = FutureProvider<List<BoardRow>>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(boardRepoProvider).sentRequests();
+});
 
 class FriendsScreen extends ConsumerStatefulWidget {
   const FriendsScreen({super.key});
@@ -98,12 +106,39 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     }
   }
 
+  /// EN-15: asking, not taking. The other person decides.
   Future<void> _add(BoardRow row) async {
     try {
-      await ref.read(boardRepoProvider).addFriend(row.userId);
+      final result =
+          await ref.read(boardRepoProvider).sendFriendRequest(row.userId);
+      ref.invalidate(friendsProvider);
+      ref.invalidate(sentRequestsProvider);
+      ref.invalidate(friendRequestsProvider);
+      ref.invalidate(teamProvider);
+      if (!mounted) return;
+      sqSnack(context, switch (result) {
+        // They had already asked, so this answered them.
+        'friends' => trp('{p1} досқа қосылды', {'p1': row.name}),
+        'blocked' => tr('Бұл адамға сұраныс жіберілмейді'),
+        _         => trp('{p1} сұраныс жіберілді', {'p1': row.name}),
+      });
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    }
+  }
+
+  /// Accepts or declines a request that was sent to this user.
+  Future<void> _respond(BoardRow row, {required bool accept}) async {
+    try {
+      await ref.read(boardRepoProvider)
+          .respondToRequest(row.value, accept: accept);
+      ref.invalidate(friendRequestsProvider);
       ref.invalidate(friendsProvider);
       ref.invalidate(teamProvider);
-      if (mounted) sqSnack(context, trp('{p1} досқа қосылды', {'p1': row.name}));
+      if (!mounted) return;
+      sqSnack(context, accept
+          ? trp('{p1} досқа қосылды', {'p1': row.name})
+          : tr('Сұраныс қабылданбады'));
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     }
@@ -194,6 +229,12 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     final invites = ref.watch(pendingInvitesProvider).valueOrNull ?? const <Battle>[];
     final friendIds = {
       for (final f in friends.valueOrNull ?? const <BoardRow>[]) f.userId
+    };
+    // People already asked, so a search result offers "sent" rather than a
+    // second request button.
+    final sentIds = {
+      for (final r in ref.watch(sentRequestsProvider).valueOrNull
+          ?? const <BoardRow>[]) r.userId
     };
     final list = friends.valueOrNull ?? const <BoardRow>[];
 
@@ -332,6 +373,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                 row: r,
                 worn: worn[r.userId],
                 isFriend: friendIds.contains(r.userId),
+                requested: sentIds.contains(r.userId),
                 challenging: _challenging == r.userId,
                 onAdd: () => _add(r),
                 onRemove: () => _remove(r),
@@ -347,34 +389,30 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
           const SizedBox(height: 20),
         ],
 
-        // Somebody to add without having to guess a username first. Only
-        // people who are not already friends, and only while the search box
-        // is not showing its own answer.
-        if (_results.isEmpty && !_searching) ...[
-          ...(() {
-            final all = ref.watch(_suggestedProvider).valueOrNull
-                ?? const <BoardRow>[];
-            final fresh = [
-              for (final r in all) if (!friendIds.contains(r.userId)) r,
-            ];
-            if (fresh.isEmpty) return const <Widget>[];
-            return [
-              SqSection(tr('Мына адамдарды қосуға болады')),
-              SqGroup(children: [
-                for (final r in fresh)
-                  _PersonRow(
-                    row: r,
-                    worn: worn[r.userId],
-                    isFriend: false,
-                    challenging: _challenging == r.userId,
-                    onAdd: () => _add(r),
-                    onRemove: () => _remove(r),
-                    onChallenge: () => _challenge(r)),
-              ]),
-              const SizedBox(height: 20),
-            ];
-          })(),
-        ],
+        // EN-15 / KK-2: a list of everybody who has an account used to sit
+        // here, which is both a privacy problem and the reason nobody ever
+        // used the search box. Finding a person is a deliberate act now — you
+        // need their handle. What replaces the list is the thing that
+        // genuinely belongs on this screen: requests waiting on an answer.
+        ...(() {
+          final incoming = ref.watch(friendRequestsProvider).valueOrNull
+              ?? const <BoardRow>[];
+          if (incoming.isEmpty) return const <Widget>[];
+          return [
+            SqSection(tr('Сұраныстар'),
+              trailingWidget: SqNum('${incoming.length}',
+                size: 11, color: AppColors.text3(isDark(context)))),
+            SqGroup(children: [
+              for (final r in incoming)
+                _RequestRow(
+                  row: r,
+                  worn: worn[r.userId],
+                  onAccept: () => _respond(r, accept: true),
+                  onDecline: () => _respond(r, accept: false)),
+            ]),
+            const SizedBox(height: 20),
+          ];
+        })(),
 
         SqSection(tr('Достарым'),
           trailingWidget: SqNum('${list.length}',
@@ -410,10 +448,61 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
   }
 }
 
+/// An incoming friend request: accept or decline, both one tap (EN-15).
+///
+/// Deliberately not a notification the app nags about. It is a row that stays
+/// on this screen until it is answered, which is what the PRD asks for —
+/// shown once, then waiting here rather than interrupting again.
+class _RequestRow extends StatelessWidget {
+  final BoardRow row;
+  final WornCosmetics? worn;
+  final VoidCallback onAccept, onDecline;
+
+  const _RequestRow({
+    required this.row,
+    required this.onAccept,
+    required this.onDecline,
+    this.worn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return SqTile(
+      fill: wornRowFill(worn, d),
+      leading: WornAvatar(
+        name: row.name, worn: worn, size: 38, emoji: row.avatarEmoji),
+      title: row.name,
+      subtitle: tr('Досқа қосылғысы келеді'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SqSquareButton(PhosphorIconsBold.check,
+            size: 34,
+            fill: AppColors.soft(AppColors.green, d),
+            border: Colors.transparent,
+            iconColor: AppColors.greenDeep,
+            onTap: onAccept),
+          const SizedBox(width: 8),
+          SqSquareButton(PhosphorIconsBold.x,
+            size: 34,
+            fill: AppColors.soft(AppColors.red, d),
+            border: Colors.transparent,
+            iconColor: AppColors.red,
+            onTap: onDecline),
+        ],
+      ),
+    );
+  }
+}
+
 class _PersonRow extends StatelessWidget {
   final BoardRow row;
   final bool isFriend;
   final bool challenging;
+  /// A request has already gone to this person and is still unanswered, so
+  /// the row says so rather than offering to send a second one.
+  final bool requested;
   final VoidCallback onAdd, onRemove;
   final VoidCallback? onChallenge;
 
@@ -424,6 +513,7 @@ class _PersonRow extends StatelessWidget {
   const _PersonRow({
     required this.row, required this.isFriend,
     this.challenging = false,
+    this.requested = false,
     required this.onAdd, required this.onRemove,
     this.onChallenge, this.worn});
 
@@ -466,6 +556,8 @@ class _PersonRow extends StatelessWidget {
                   onTap: onRemove),
               ],
             )
+          : requested
+          ? SqBadge(tr('Жіберілді'), tint: AppColors.amber)
           : SqSquareButton(PhosphorIconsBold.userPlus,
               size: 34,
               fill: AppColors.soft(AppColors.primary, d),

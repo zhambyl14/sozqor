@@ -37,6 +37,13 @@ class QuestionFactory {
     int count = 10,
     int? seed,
     String nativeLang = 'kk',
+    /// Kinds this round must never ask (EN-22 / KK-3).
+    ///
+    /// Ranked play passes [QKind.listening]: an audio question is unplayable
+    /// on a bus or in a lesson, and a rated match is exactly the round nobody
+    /// can afford to skip. It is a parameter rather than a mode check because
+    /// this factory has no idea which mode called it.
+    Set<QKind> exclude = const {},
   }) {
     final rng = Random(seed ?? DateTime.now().microsecondsSinceEpoch);
 
@@ -52,25 +59,69 @@ class QuestionFactory {
     ];
 
     final order = [...usable]..shuffle(rng);
-    final allowed = kinds.isEmpty ? [QKind.kkEn, QKind.enKk] : kinds;
+    var allowed = kinds.isEmpty ? [QKind.kkEn, QKind.enKk] : kinds;
+    allowed = allowed.where((k) => !exclude.contains(k)).toList();
+    // Excluding everything would leave nothing to ask; translation is the one
+    // kind every entry supports, so it is the floor.
+    if (allowed.isEmpty) allowed = [QKind.kkEn, QKind.enKk];
 
     final out = <Question>[];
     var cursor = 0;
     var guard = 0;
 
-    while (out.length < count && guard < count * 6) {
+    // EN-22: the PRD's example is an audio question about a word followed
+    // immediately by another question about that same word. Nothing tracked
+    // what had just been asked, so with a small pool a round could ask about
+    // four words in ten questions and ask two of them back to back.
+    //
+    // `recentWords` is a sliding window over the answers already used, and
+    // `recentKinds` stops a round turning into six spelling questions in a
+    // row. Both are relaxed once the pool is genuinely too small to satisfy
+    // them, because a shorter round is worse than a repetitive one.
+    final recentWords = <String>[];
+    final recentKinds = <QKind>[];
+    final wordWindow = min(5, max(1, usable.length - 1));
+
+    String keyOf(PlayItem i) =>
+        (i.wordId ?? i.entry.en).trim().toLowerCase();
+
+    while (out.length < count && guard < count * 8) {
       guard++;
       if (order.isEmpty) break;
       final item = order[cursor % order.length];
       cursor++;
 
-      final supported = allowed.where((k) => _supports(item.entry, k)).toList();
-      final kind = supported.isEmpty
-          ? (rng.nextBool() ? QKind.kkEn : QKind.enKk)
-          : supported[rng.nextInt(supported.length)];
+      // A relaxed pass only kicks in once cycling has clearly failed to find
+      // anything fresh, so the window is honoured whenever it can be.
+      final relaxed = guard > count * 4;
+      if (!relaxed && recentWords.contains(keyOf(item))) continue;
+
+      var supported = allowed.where((k) => _supports(item.entry, k)).toList();
+      if (supported.isEmpty) {
+        supported = [
+          if (!exclude.contains(QKind.kkEn)) QKind.kkEn,
+          if (!exclude.contains(QKind.enKk)) QKind.enKk,
+        ];
+        if (supported.isEmpty) supported = [QKind.kkEn];
+      }
+
+      // Prefer a kind that has not just been used twice running.
+      final tired = recentKinds.length >= 2 &&
+          recentKinds.last == recentKinds[recentKinds.length - 2]
+              ? recentKinds.last
+              : null;
+      final fresh = supported.where((k) => k != tired).toList();
+      final pickFrom = fresh.isEmpty ? supported : fresh;
+      final kind = pickFrom[rng.nextInt(pickFrom.length)];
 
       final q = _make(item, kind, allEntries, rng, nativeLang);
-      if (q != null) out.add(q);
+      if (q == null) continue;
+
+      out.add(q);
+      recentWords.add(keyOf(item));
+      if (recentWords.length > wordWindow) recentWords.removeAt(0);
+      recentKinds.add(kind);
+      if (recentKinds.length > 3) recentKinds.removeAt(0);
     }
 
     return out;

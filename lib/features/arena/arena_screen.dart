@@ -34,6 +34,7 @@ import '../teams/teams_screen.dart';
 import 'leaderboard_screen.dart';
 import 'league_screen.dart';
 import 'match_result_screen.dart';
+import 'rematch_series.dart';
 import 'tournament_screen.dart';
 
 enum _Opponent { ranked, bot, friend }
@@ -71,7 +72,12 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
 
     return QuestionFactory.build(
       items: items, pool: pool, kinds: kindsFor(cefr),
-      count: count, nativeLang: lang);
+      count: count, nativeLang: lang,
+      // KK-3: no listening questions in a rated match. Audio is unplayable on
+      // a bus or in a lesson, and a rated round is the one nobody can afford
+      // to skip — so the whole kind is off the table here rather than being
+      // something the learner has to sit out.
+      exclude: const {QKind.listening});
   }
 
   Future<void> _openBattle(Battle b) async {
@@ -82,17 +88,44 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       ref.invalidate(battleHistoryProvider);
       ref.invalidate(pendingInvitesProvider);
     }
-    // "Кек қайтару" (rematch) pops the finished Battle back to us instead of
-    // null — start a fresh match of the same mode right away so the button
-    // actually does something a plain close does not.
-    if (result is Battle && mounted) {
-      if (result.mode == 'ranked') {
-        await _startRanked();
-      } else if (result.mode == 'bot') {
-        await _startBot();
-      } else if (result.mode == 'friend') {
-        await _rematchFriend(result);
-      }
+    if (result is! Battle || !mounted) return;
+
+    // EN-21. "Кек қайтару" used to pop the finished battle back here and then
+    // start a fresh matchmaking search — which threw away the one thing a
+    // rematch is for, the person you had just played. A series keeps them.
+    final uid = currentUid ?? '';
+    final rematch = ref.read(rematchProvider.notifier);
+    var series = ref.read(rematchProvider);
+
+    if (series == null || series.opponentId != (result.oppId(uid) ?? 'bot')) {
+      rematch.start(result, uid,
+        result.mode == 'bot'
+            ? (result.botName ?? tr('Бот'))
+            : tr('Қарсылас'));
+    }
+    rematch.record(result, uid);
+    series = ref.read(rematchProvider);
+
+    // Decided, so the series ends with the line the PRD asks for rather than
+    // quietly rolling into a fourth game.
+    if (series != null && series.isDecided) {
+      final won = series.iWonSeries;
+      sqSnack(context, won == null
+          ? trp('Серия {s} есебімен тең аяқталды', {'s': series.scoreline})
+          : won
+              ? trp('{s} есебімен жеңдің!', {'s': series.scoreline})
+              : trp('{s} есебімен ұтылдың', {'s': series.scoreline}));
+      rematch.clear();
+      return;
+    }
+
+    // The same opponent, one more game.
+    if (result.mode == 'ranked') {
+      await _startRanked();
+    } else if (result.mode == 'bot') {
+      await _startBot();
+    } else if (result.mode == 'friend') {
+      await _rematchFriend(result);
     }
   }
 

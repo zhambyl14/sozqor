@@ -132,6 +132,13 @@ class LeagueRow {
   final String userId, username, displayName, avatarEmoji;
   final bool isMe;
 
+  /// 5.0 ranks the league on rating rather than weekly XP (EN-19), so the row
+  /// carries the Elo it is sorted by and the band it belongs to. All of it is
+  /// nullable-with-a-default: until v5_league_elo.sql is applied the old
+  /// my_league() is still answering and none of these columns exist.
+  final int elo, tierMin, tierMax;
+  final String tierKk, tierRu, tierColour;
+
   const LeagueRow({
     required this.leagueId,
     required this.tier,
@@ -142,6 +149,12 @@ class LeagueRow {
     required this.displayName,
     required this.avatarEmoji,
     required this.isMe,
+    this.elo = 1000,
+    this.tierKk = '',
+    this.tierRu = '',
+    this.tierColour = '',
+    this.tierMin = 0,
+    this.tierMax = 0,
   });
 
   factory LeagueRow.fromMap(Map<String, dynamic> m) => LeagueRow(
@@ -154,9 +167,23 @@ class LeagueRow {
     displayName: (m['display_name'] ?? '').toString(),
     avatarEmoji: (m['avatar_emoji'] ?? '🦊').toString(),
     isMe:        (m['is_me'] ?? false) as bool,
+    elo:         ((m['elo'] ?? 1000) as num).toInt(),
+    tierKk:      (m['tier_kk'] ?? '').toString(),
+    tierRu:      (m['tier_ru'] ?? '').toString(),
+    tierColour:  (m['tier_colour'] ?? '').toString(),
+    tierMin:     ((m['tier_min'] ?? 0) as num).toInt(),
+    tierMax:     ((m['tier_max'] ?? 0) as num).toInt(),
   );
 
   String get name => displayName.trim().isEmpty ? username : displayName.trim();
+
+  /// The band's name in the app language, or an empty string on the old
+  /// server where the league carries no band at all.
+  String get tierName => AppLang.isRu ? tierRu : tierKk;
+
+  /// True for the top rank, which has no band above it — EN-19 asks for one
+  /// named summit rather than an endlessly growing list of leagues.
+  bool get isTopRank => tierMax >= 2147483647;
 }
 
 class Tournament {

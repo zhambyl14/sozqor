@@ -33,6 +33,7 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/achievements.dart';
 import '../../services/speech.dart';
+import 'rematch_series.dart';
 
 /// One finished round, for the post-match table.
 class _Round {
@@ -1153,10 +1154,20 @@ class _BattleResult extends ConsumerWidget {
             padding: EdgeInsets.all(12),
             child: CircularProgressIndicator()))
         else ...[
-          SqAction(tr('Кек қайтару'),
-            icon: PhosphorIconsFill.sword,
-            tone: SqTone.danger,
-            onTap: onRematch),
+          // EN-21: a series against the same person, not a fresh search. The
+          // running score is on the button, so "one more game" and "I am 1:1
+          // and this decides it" are visibly different decisions.
+          Builder(builder: (_) {
+            final series = ref.watch(rematchProvider);
+            final live = series != null && !series.isDecided && series.played > 0;
+            return SqAction(
+              live
+                  ? trp('Тағы бір ойын · {s}', {'s': series.scoreline})
+                  : tr('Кек қайтару'),
+              icon: PhosphorIconsFill.sword,
+              tone: SqTone.danger,
+              onTap: onRematch);
+          }),
           const SizedBox(height: 10),
           SqAction(tr('Аренаға қайту'),
             tone: SqTone.ghost, height: 48, onTap: onClose),

@@ -200,7 +200,9 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
 
     return QuestionFactory.build(
       items: items, pool: pool, kinds: kindsFor(cefr),
-      count: 10, nativeLang: lang);
+      count: 10, nativeLang: lang,
+      // Head-to-head play excludes audio for the same reason ranked does.
+      exclude: const {QKind.listening});
   }
 
   /// Starts a battle against this friend directly — no invite code changes

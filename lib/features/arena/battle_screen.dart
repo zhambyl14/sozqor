@@ -134,9 +134,19 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _begin());
   }
 
+  /// Cleared in deactivate() rather than dispose(): Riverpod invalidates `ref`
+  /// once the element is unmounted, so reading a notifier in dispose() throws
+  /// "Cannot use ref after the widget was disposed". deactivate() runs first,
+  /// while the element is still attached, and is the documented place for
+  /// this.
+  @override
+  void deactivate() {
+    ref.read(busyProvider.notifier).state = false;
+    super.deactivate();
+  }
+
   @override
   void dispose() {
-    ref.read(busyProvider.notifier).state = false;
     _tick?.cancel();
     _botTimer?.cancel();
     _awaitOpp?.cancel();

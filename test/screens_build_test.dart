@@ -31,6 +31,7 @@ import 'package:sozqor/features/events/events_screen.dart';
 import 'package:sozqor/features/home/chest_screen.dart';
 import 'package:sozqor/features/home/home_screen.dart';
 import 'package:sozqor/features/home/missions_screen.dart';
+import 'package:sozqor/features/home/story_chapter_screen.dart';
 import 'package:sozqor/features/home/story_screen.dart';
 import 'package:sozqor/features/moderator/moderator_screen.dart';
 import 'package:sozqor/features/play/ai_chat_screen.dart';
@@ -77,6 +78,7 @@ const _screens = <String, Widget>{
   'missions': MissionsScreen(),
   'chest': ChestScreen(),
   'story': StoryScreen(),
+  'story chapter': StoryChapterScreen(chapter: 0),
   'packs': PacksScreen(),
   'explore': ExploreScreen(),
   'add word': AddWordScreen(),

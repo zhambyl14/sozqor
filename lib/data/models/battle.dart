@@ -217,6 +217,34 @@ class Tournament {
   }
 }
 
+/// Where a learner stands in a survival tournament (EN-23 / KK-4).
+///
+/// Every field defaults, and the repo hands back a plain instance when the
+/// RPC is missing — until v5_tournament_survival.sql is applied the screen
+/// still opens and simply behaves like the old scoring tournament.
+class TournamentRun {
+  final int livesLeft, bestWave, score, runs, rank;
+  final String? titleRu;
+
+  const TournamentRun({
+    this.livesLeft = 3,
+    this.bestWave = 0,
+    this.score = 0,
+    this.runs = 0,
+    this.rank = 0,
+    this.titleRu,
+  });
+
+  factory TournamentRun.fromMap(Map<String, dynamic> m) => TournamentRun(
+    livesLeft: ((m['lives_left'] ?? 3) as num).toInt(),
+    bestWave:  ((m['best_wave'] ?? 0) as num).toInt(),
+    score:     ((m['score'] ?? 0) as num).toInt(),
+    runs:      ((m['runs'] ?? 0) as num).toInt(),
+    rank:      ((m['rank'] ?? 0) as num).toInt(),
+    titleRu:   m['title_ru']?.toString(),
+  );
+}
+
 class DailyProgress {
   final int wordsAdded, quizzesDone, wordsReviewed, correctCount;
   final int battlesPlayed, battlesWon, xpEarned;

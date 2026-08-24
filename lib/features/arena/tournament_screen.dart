@@ -1,7 +1,16 @@
 // lib/features/arena/tournament_screen.dart
 //
-// A rolling 24-hour tournament. Play as many rounds as you like; scores add
-// up and the standings refresh live. Nobody ever waits for a bracket.
+// A rolling 24-hour tournament, played as SURVIVAL (EN-23 / KK-4).
+//
+// A round used to be PlayMode.tournament — PlayMode.classic with a different
+// label and a different place to post the score. "Tournament must not feel
+// like another Classic Test" is the PRD's wording, and it was right: nothing
+// about it was different.
+//
+// Now a run is something you can lose. Three lives a day, waves that answer
+// faster the deeper you go, and a decision between every wave: bank what you
+// have, or push on and risk it. That decision is the mode; the run screen
+// (tournament_run_screen.dart) is where it happens.
 //
 // The header block answers the three questions a timed event has to answer in
 // one glance — how long is left, where am I, how many points do I have — and
@@ -13,13 +22,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
-import '../../core/constants/game_meta.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/battle.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
-import '../play/play_session_screen.dart';
+import 'tournament_run_screen.dart';
 
 class TournamentScreen extends ConsumerStatefulWidget {
   const TournamentScreen({super.key});
@@ -44,10 +52,11 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
 
   Future<void> _play(Tournament t) async {
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PlaySessionScreen(
-        mode: PlayMode.tournament, tournamentId: t.id, title: t.title)));
+      builder: (_) => TournamentRunScreen(
+        tournamentId: t.id, title: t.title)));
     if (mounted) {
       ref.invalidate(tournamentBoardProvider(t.id));
+      ref.invalidate(tournamentProvider);
       refreshAll(ref);
     }
   }

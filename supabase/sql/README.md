@@ -22,6 +22,7 @@ must **not** be run twice.
 | 6 | `v5_translation_review.sql` | EN-49 / EN-50 / KK-8 — the moderator queue behind the translation gate | The gate still works and still refuses transliterations; the refusals are simply not recorded anywhere |
 | 7 | `v5_league_elo.sql` | EN-19 / KK-3 — the league becomes a rating ladder | The league still ranks on weekly XP and the band never changes with your rating; matchmaking ignores bands. **Run after #1** — it replaces a function that file introduces |
 | 8 | `v5_telegram_lang.sql` | EN-4 / KK-9 — the bot speaks the app's language | The bot answers every learner in Kazakh, including one who set the app to Russian |
+| 9 | `v5_tournament_survival.sql` | EN-23 / KK-4 — the tournament becomes survival | The run screen opens and plays, but lives never decrease, the board still ranks on score alone, and a tournament still cannot be retired |
 
 `profiles_guard.sql` and `device_tokens.sql` are already applied; they are kept
 for reference.

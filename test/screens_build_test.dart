@@ -26,6 +26,7 @@ import 'package:sozqor/features/teams/team_war_screen.dart';
 import 'package:sozqor/features/teams/teams_screen.dart';
 import 'package:sozqor/features/arena/leaderboard_screen.dart';
 import 'package:sozqor/features/arena/league_screen.dart';
+import 'package:sozqor/features/arena/tournament_run_screen.dart';
 import 'package:sozqor/features/arena/tournament_screen.dart';
 import 'package:sozqor/features/events/events_screen.dart';
 import 'package:sozqor/features/home/chest_screen.dart';
@@ -74,6 +75,7 @@ const _screens = <String, Widget>{
     userId: '00000000-0000-0000-0000-000000000000'),
   'league': LeagueScreen(),
   'tournament': TournamentScreen(),
+  'tournament run': TournamentRunScreen(tournamentId: 1, title: 'T'),
   'events': EventsScreen(),
   'missions': MissionsScreen(),
   'chest': ChestScreen(),

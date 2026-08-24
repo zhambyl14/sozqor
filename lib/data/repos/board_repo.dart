@@ -58,6 +58,39 @@ class BoardRepo {
       supa.rpc('submit_tournament_round',
           params: {'p_tournament': tournamentId, 'p_score': score});
 
+  /// Where this learner stands in a survival tournament, and how many lives
+  /// they have left today (EN-23).
+  ///
+  /// Falls back to a three-life default when the RPC is missing, so the
+  /// tournament still opens on a server where v5_tournament_survival.sql has
+  /// not been run — it simply behaves like the old scoring one.
+  Future<TournamentRun> tournamentState(int tournamentId) async {
+    try {
+      final res = await supa.rpc('tournament_state',
+          params: {'p_tournament': tournamentId});
+      return TournamentRun.fromMap(Map<String, dynamic>.from(res as Map));
+    } catch (_) {
+      return const TournamentRun();
+    }
+  }
+
+  /// Ends one survival run. [lost] is what spends a life — banking out costs
+  /// nothing, which is the whole decision the mode is built around.
+  Future<TournamentRun> submitTournamentRun(
+    int tournamentId, {
+    required int wave,
+    required int score,
+    required bool lost,
+  }) async {
+    final res = await supa.rpc('submit_tournament_run', params: {
+      'p_tournament': tournamentId,
+      'p_wave': wave,
+      'p_score': score,
+      'p_lost': lost,
+    });
+    return TournamentRun.fromMap(Map<String, dynamic>.from(res as Map));
+  }
+
   Future<List<BoardRow>> tournamentBoard(int id, {int limit = 50}) async =>
       _rows(await supa.rpc('tournament_board',
           params: {'p_tournament': id, 'p_limit': limit}));

@@ -23,6 +23,14 @@ const Map<String, String> kRu = {
   'Ең ұзақ сериям: {n} күн': 'Моя самая длинная серия: {n} дней',
   'Бүгінгі жоспар толық орындалды': 'План на сегодня выполнен полностью',
 
+  // ── 5.0: a friend's public profile (EN-17, KK-2) ───────
+  'Профиль': 'Профиль',
+  'Профиль ашылмады': 'Профиль не открылся',
+  'Әзірге жетістік жоқ': 'Пока нет достижений',
+  // Same in both languages, but it must be a key or the coverage test cannot
+  // tell "deliberately identical" from "nobody translated it".
+  'XP': 'XP',
+
   // ── 5.0: battle invitation popup (EN-12, EN-14, KK-2) ──
   'Баттлға шақыру': 'Приглашение в битву',
   '{name} сені баттлға шақырды': '{name} зовёт тебя в битву',

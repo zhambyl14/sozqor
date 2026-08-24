@@ -22,6 +22,7 @@ import '../../providers.dart';
 import '../../services/question_factory.dart';
 import '../arena/battle_screen.dart';
 import '../auth/guest_gate.dart';
+import 'public_profile_screen.dart';
 import 'worn_avatar.dart';
 
 /// What the people on this screen are wearing. One request for the whole
@@ -158,6 +159,13 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     }
+  }
+
+  /// EN-17: opens somebody's public profile.
+  Future<void> _openProfile(BoardRow row) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PublicProfileScreen(
+        userId: row.userId, fallbackName: row.name)));
   }
 
   Future<void> _play(Battle b) async {
@@ -377,6 +385,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                 challenging: _challenging == r.userId,
                 onAdd: () => _add(r),
                 onRemove: () => _remove(r),
+                onOpen: () => _openProfile(r),
                 onChallenge: () => _challenge(r)),
           ]),
           const SizedBox(height: 20),
@@ -439,6 +448,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                   worn: worn[f.userId],
                   challenging: _challenging == f.userId,
                   onAdd: () {}, onRemove: () => _remove(f),
+                  onOpen: () => _openProfile(f),
                   onChallenge: () => _challenge(f)),
             ]);
           },
@@ -505,6 +515,7 @@ class _PersonRow extends StatelessWidget {
   final bool requested;
   final VoidCallback onAdd, onRemove;
   final VoidCallback? onChallenge;
+  final VoidCallback? onOpen;
 
   /// What this person is wearing, once the cosmetics for the list have
   /// arrived. Null renders the plain row, as before.
@@ -515,7 +526,7 @@ class _PersonRow extends StatelessWidget {
     this.challenging = false,
     this.requested = false,
     required this.onAdd, required this.onRemove,
-    this.onChallenge, this.worn});
+    this.onChallenge, this.worn, this.onOpen});
 
   @override
   Widget build(BuildContext context) {
@@ -529,6 +540,9 @@ class _PersonRow extends StatelessWidget {
       subtitle: title == null
           ? '${row.cefrLevel} · ${row.value} XP'
           : '${row.cefrLevel} · ${row.value} XP · $title',
+      // EN-17: the row opens the person. Cosmetics are bought to be seen and
+      // until now the only person who could see them was their owner.
+      onTap: onOpen,
       trailing: isFriend
           ? Row(
               mainAxisSize: MainAxisSize.min,

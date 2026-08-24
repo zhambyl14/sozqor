@@ -40,6 +40,7 @@ import 'package:sozqor/features/profile/achievements_screen.dart';
 import 'package:sozqor/features/profile/friends_screen.dart';
 import 'package:sozqor/features/profile/legal_screen.dart';
 import 'package:sozqor/features/profile/profile_screen.dart';
+import 'package:sozqor/features/profile/public_profile_screen.dart';
 import 'package:sozqor/features/profile/report_screen.dart';
 import 'package:sozqor/features/profile/settings_screen.dart';
 import 'package:sozqor/features/profile/shop_screen.dart';
@@ -66,6 +67,8 @@ const _screens = <String, Widget>{
   'account': AccountScreen(),
   'legal terms': LegalScreen(doc: LegalDoc.terms),
   'legal privacy': LegalScreen(doc: LegalDoc.privacy),
+  'public profile': PublicProfileScreen(
+    userId: '00000000-0000-0000-0000-000000000000'),
   'league': LeagueScreen(),
   'tournament': TournamentScreen(),
   'events': EventsScreen(),

@@ -241,8 +241,13 @@ class ProfileRepo {
   }
 
   // ── Achievements ───────────────────────────────────────
-  Future<Set<String>> unlockedAchievements() async {
-    final uid = currentUid;
+  /// Achievements [userId] has unlocked, defaulting to the caller's own.
+  ///
+  /// `user_achievements` is world-readable by policy, which is what makes a
+  /// friend's badge shelf viewable at all (EN-17). Only the codes are read —
+  /// nothing here says when or how anybody earned one.
+  Future<Set<String>> unlockedAchievements([String? userId]) async {
+    final uid = userId ?? currentUid;
     if (uid == null) return {};
     final rows = await supa.from('user_achievements')
         .select('code').eq('user_id', uid).not('unlocked_at', 'is', null);

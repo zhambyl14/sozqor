@@ -23,6 +23,7 @@ must **not** be run twice.
 | 7 | `v5_league_elo.sql` | EN-19 / KK-3 — the league becomes a rating ladder | The league still ranks on weekly XP and the band never changes with your rating; matchmaking ignores bands. **Run after #1** — it replaces a function that file introduces |
 | 8 | `v5_telegram_lang.sql` | EN-4 / KK-9 — the bot speaks the app's language | The bot answers every learner in Kazakh, including one who set the app to Russian |
 | 9 | `v5_tournament_survival.sql` | EN-23 / KK-4 — the tournament becomes survival | The run screen opens and plays, but lives never decrease, the board still ranks on score alone, and a tournament still cannot be retired |
+| 11 | `v5_moderator_dictionary.sql` | EN-33 / EN-38 / EN-50 / KK-7 — moderators can edit the dictionary | The console shows the two new entries but every action errors; no wrong translation can be corrected. **Run after #6** — its queue reads that file's table |
 | 10 | `v5_collections.sql` | EN-32 / EN-34 / EN-38 / KK-5 — word collections become rows | The collections screen shows "топтама жүйесі әлі қосылмаған" and nobody can make their own. **Seeds the six existing packs and fills them from the dictionary**, so the count on each becomes true the moment it runs |
 
 `profiles_guard.sql` and `device_tokens.sql` are already applied; they are kept

@@ -34,7 +34,10 @@ import 'package:sozqor/features/home/home_screen.dart';
 import 'package:sozqor/features/home/missions_screen.dart';
 import 'package:sozqor/features/home/story_chapter_screen.dart';
 import 'package:sozqor/features/home/story_screen.dart';
+import 'package:sozqor/features/moderator/dictionary_editor_screen.dart';
 import 'package:sozqor/features/moderator/moderator_screen.dart';
+import 'package:sozqor/features/moderator/translation_review_screen.dart';
+import 'package:sozqor/features/moderator/word_editor_screen.dart';
 import 'package:sozqor/features/play/ai_chat_screen.dart';
 import 'package:sozqor/features/words/collection_detail_screen.dart';
 import 'package:sozqor/features/words/collections_screen.dart';
@@ -90,6 +93,9 @@ const _screens = <String, Widget>{
   'add word': AddWordScreen(),
   'ai chat': AiChatScreen(),
   'moderator': ModeratorScreen(),
+  'dictionary editor': DictionaryEditorScreen(),
+  'word editor': WordEditorScreen(),
+  'translation review': TranslationReviewScreen(),
 };
 
 /// A small phone with text scaled to the ceiling the app clamps at — the

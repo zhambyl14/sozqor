@@ -14,6 +14,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/i18n/l10n.dart';
+import '../models/dict_entry.dart';
 import '../supa.dart';
 
 /// Levels a piece of content can be aimed at, weakest first.
@@ -503,6 +505,189 @@ const Map<String, String> _translit = {
 // re-exports these names so screens still need only the one import.
 
 final moderatorRepoProvider = Provider((_) => ModeratorRepo());
+
+// ── The dictionary (EN-33 / EN-38 / EN-50 / KK-7) ──────────
+//
+// Until 5.0 this repo managed events, tournaments and shop items and never
+// touched the dictionary, and dictionary_repo.dart is read-only. So the only
+// writer was dict_upsert from the AI edge function, and no human could correct
+// a wrong translation, add a word at a level, or remove a bad entry — every
+// mistake the model made was permanent.
+
+/// One page of dictionary rows for the console, unverified first.
+Future<List<DictEntry>> _dictRows(dynamic res) => Future.value([
+  for (final r in (res as List? ?? const []))
+    DictEntry.fromMap(Map<String, dynamic>.from(r as Map)),
+]);
+
+extension ModeratorDictionary on ModeratorRepo {
+  Future<List<DictEntry>> dictionary({
+    String query = '',
+    String? cefr,
+    String? topic,
+    bool? verified,
+    String? source,
+    int limit = 20,
+    int offset = 0,
+  }) async => _dictRows(await supa.rpc('dict_admin_list', params: {
+        'p_query': query.trim(),
+        'p_cefr': cefr,
+        'p_topic': topic,
+        'p_verified': verified,
+        'p_source': source,
+        'p_limit': limit,
+        'p_offset': offset,
+      }));
+
+  /// An honest total for the header. DictionaryRepo.totalWords() selected a
+  /// thousand ids and returned their length, so it both moved a thousand rows
+  /// to produce one number and silently reported 1000 for ever once the
+  /// dictionary passed that size.
+  Future<int> dictionaryCount({
+    String query = '',
+    String? cefr,
+    String? topic,
+    bool? verified,
+    String? source,
+  }) async => ((await supa.rpc('dict_count', params: {
+        'p_query': query.trim(),
+        'p_cefr': cefr,
+        'p_topic': topic,
+        'p_verified': verified,
+        'p_source': source,
+      }) ?? 0) as num).toInt();
+
+  Future<DictEntry> saveWord({
+    int? id,
+    required String en,
+    required String kk,
+    String? ru,
+    String? pos,
+    String? definitionEn,
+    String? exampleEn,
+    String? ipa,
+    String? emoji,
+    String cefr = 'A2',
+    String topic = 'general',
+    List<String> synonyms = const [],
+    List<String> antonyms = const [],
+    bool verified = true,
+  }) async {
+    final row = await supa.rpc('dict_admin_upsert', params: {
+      'p_id': id,
+      'p_en': en.trim(),
+      'p_kk': kk.trim(),
+      'p_ru': (ru ?? '').trim().isEmpty ? null : ru!.trim(),
+      'p_pos': pos,
+      'p_definition_en': definitionEn,
+      'p_example_en': exampleEn,
+      'p_ipa': ipa,
+      'p_emoji': emoji,
+      'p_cefr': cefr,
+      'p_topic': topic,
+      'p_synonyms': synonyms,
+      'p_antonyms': antonyms,
+      'p_verified': verified,
+    });
+    return DictEntry.fromMap(Map<String, dynamic>.from(row as Map));
+  }
+
+  /// Deleting detaches every learner's copy first. The words themselves
+  /// survive — somebody has been studying them, and a bad shared entry is not
+  /// a reason to empty their bank.
+  Future<void> deleteWord(int id) =>
+      supa.rpc('dict_admin_delete', params: {'p_id': id});
+
+  Future<int> setLevel(List<int> ids, String cefr) async =>
+      ((await supa.rpc('dict_admin_set_cefr',
+          params: {'p_ids': ids, 'p_cefr': cefr}) ?? 0) as num).toInt();
+
+  Future<int> setVerified(List<int> ids, bool verified) async =>
+      ((await supa.rpc('dict_admin_set_verified',
+          params: {'p_ids': ids, 'p_verified': verified}) ?? 0) as num).toInt();
+
+  // ── The translation review queue (EN-49 / EN-50) ────────
+  /// What the translation gate refused. Refusing a bad translation is only
+  /// half an answer if nobody can then supply a good one.
+  Future<List<TranslationReport>> translationQueue({
+    String status = 'open',
+    int limit = 40,
+    int offset = 0,
+  }) async {
+    final rows = await supa.rpc('translation_queue', params: {
+      'p_status': status, 'p_limit': limit, 'p_offset': offset,
+    });
+    return [
+      for (final r in (rows as List? ?? const []))
+        TranslationReport.fromMap(Map<String, dynamic>.from(r as Map)),
+    ];
+  }
+
+  /// Writes the correction and closes every open report for that word at once
+  /// — a term that failed nine times should not need closing nine times.
+  Future<void> fixTranslation(int id, {
+    required String en,
+    required String kk,
+    String? ru,
+  }) => supa.rpc('translation_fix', params: {
+        'p_id': '$id',
+        'p_en': en.trim(),
+        'p_kk': kk.trim(),
+        'p_ru': (ru ?? '').trim().isEmpty ? null : ru!.trim(),
+      });
+
+  Future<void> dismissTranslation(int id) =>
+      supa.rpc('translation_dismiss', params: {'p_id': '$id'});
+}
+
+/// One refusal from the translation gate.
+class TranslationReport {
+  final int id, failCount;
+  final String term, candidate, failedCheck, provider, status;
+  final String? sourceLang, targetLang, currentEn, currentKk, currentRu;
+
+  const TranslationReport({
+    required this.id,
+    required this.term,
+    this.candidate = '',
+    this.failedCheck = '',
+    this.provider = '',
+    this.status = 'open',
+    this.failCount = 1,
+    this.sourceLang,
+    this.targetLang,
+    this.currentEn,
+    this.currentKk,
+    this.currentRu,
+  });
+
+  factory TranslationReport.fromMap(Map<String, dynamic> m) =>
+      TranslationReport(
+        id:          ((m['id'] ?? 0) as num).toInt(),
+        term:        (m['term'] ?? '').toString(),
+        candidate:   (m['candidate'] ?? '').toString(),
+        failedCheck: (m['failed_check'] ?? '').toString(),
+        provider:    (m['provider'] ?? '').toString(),
+        status:      (m['status'] ?? 'open').toString(),
+        failCount:   ((m['fail_count'] ?? 1) as num).toInt(),
+        sourceLang:  m['source_lang']?.toString(),
+        targetLang:  m['target_lang']?.toString(),
+        currentEn:   m['current_en']?.toString(),
+        currentKk:   m['current_kk']?.toString(),
+        currentRu:   m['current_ru']?.toString(),
+      );
+
+  /// Why the gate said no, in the app language.
+  String get reason => switch (failedCheck) {
+    'translit'   => tr('Транслитерация — аударма емес'),
+    'script'     => tr('Жазуы дұрыс емес'),
+    'identity'   => tr('Жауап сұрақтың өзі'),
+    'length'     => tr('Ұзындығы келмейді'),
+    'disagree'   => tr('Екі модель келіспеді'),
+    'confidence' => tr('Сенімділік төмен'),
+    _            => failedCheck,
+  };
+}
 
 /// Its own subscription to the auth stream rather than a reach back into
 /// providers.dart — a guest who signs in as the owner has to see the console

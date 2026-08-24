@@ -11,6 +11,12 @@ class DictEntry {
   final String cefr, topic, source;
   final int    hits;
 
+  /// True once a human has checked the entry. The moderator console filters
+  /// on it — finding the rows nobody has looked at is the whole reason that
+  /// screen exists, and the column has been in the table since the beginning
+  /// with nothing reading it.
+  final bool   verified;
+
   const DictEntry({
     this.id,
     required this.en,
@@ -28,6 +34,7 @@ class DictEntry {
     this.topic  = 'general',
     this.source = 'ai',
     this.hits   = 0,
+    this.verified = false,
   });
 
   static List<String> _strList(dynamic v) {
@@ -48,6 +55,7 @@ class DictEntry {
     exampleKk:    m['example_kk']?.toString(),
     ipa:          m['ipa']?.toString(),
     emoji:        m['emoji']?.toString(),
+    verified:     (m['verified'] ?? false) as bool,
     synonyms:     _strList(m['synonyms']),
     antonyms:     _strList(m['antonyms']),
     cefr:         (m['cefr']  ?? 'A2').toString(),

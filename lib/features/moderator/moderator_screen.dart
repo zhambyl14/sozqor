@@ -22,8 +22,10 @@ import '../../core/widgets/sq.dart';
 import '../../data/repos/moderator_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import 'dictionary_editor_screen.dart';
 import 'event_editor_screen.dart';
 import 'shop_item_editor_screen.dart';
+import 'translation_review_screen.dart';
 import 'tournament_editor_screen.dart';
 
 class ModeratorScreen extends ConsumerStatefulWidget {
@@ -139,6 +141,32 @@ class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
       children: [
         _header(context),
         const SizedBox(height: 16),
+
+        // EN-33 / EN-38 / EN-50: the dictionary and the translation queue.
+        // Neither existed before 5.0 — this console managed events,
+        // tournaments and shop items while the one table learners actually
+        // read from had no editor at all, so every wrong translation the AI
+        // produced was permanent.
+        SqGroup(children: [
+          SqTile(
+            leading: const SqTintBox(PhosphorIconsFill.books,
+              tint: AppColors.primary, size: 34),
+            title: tr('Сөз базасы'),
+            subtitle: tr('Сөз қосу, түзету, деңгей қою'),
+            chevron: true,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const DictionaryEditorScreen()))),
+          SqTile(
+            leading: const SqTintBox(PhosphorIconsFill.translate,
+              tint: AppColors.amber, size: 34),
+            title: tr('Аударма тексеру'),
+            subtitle: tr('Қақпадан өтпеген сөздер'),
+            chevron: true,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const TranslationReviewScreen()))),
+        ]),
+        const SizedBox(height: 18),
+
         SqSegmented(
           items: [tr('Оқиғалар'), tr('Турнирлер'), tr('Дүкен')],
           index: _tab,

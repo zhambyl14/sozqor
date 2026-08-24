@@ -4,20 +4,28 @@
 //
 // Tasks: translate | enrich | suggest | chat | explain | raw
 //
-// A translate request never dead-ends on a quota error. The order is OpenAI
-// (the only key that is not on a free quota), then each free OpenRouter model,
-// then Gemini, and only if every one of them is spent do three keyless
-// translation services get their turn. The learner always gets something they
-// can save.
+// A translate request never dead-ends on a quota error. The order is
+// FreeRouter (free, and the most accurate of them on the probe below), then
+// OpenAI, then Gemini, then the free OpenRouter models, and only if every one
+// of them is spent do three keyless translation services get their turn.
+//
+// But "always answers" is not the goal on its own, and used to be pursued at
+// the cost of being right: two of those keyless services return Kazakh words
+// TRANSLITERATED, and "шамшырақ" reached learners as "shamshyraq". Every
+// candidate now passes a gate — script, identity, transliteration, length, and
+// agreement between two models — before it is shown or written to the shared
+// dictionary. A word that fails is refused outright with "Аударма табылмады",
+// because one wrong entry in a dictionary everybody shares is worse than a
+// gap in it.
 //
 // Every error message is written in the interface language sent as `lang`
-// ("kk" or "ru"). `chat` and `explain` additionally take `study_lang` — the
-// learner's "Оқу тілі" setting, independent of `lang` — since their whole
-// output is study content that must follow what language the learner is
-// training against, not what language the app chrome happens to be in.
+// ("kk" or "ru"). 5.0 collapsed the app's two language settings into one, so
+// `study_lang` now always mirrors `lang`; the parameter is still read for
+// older cached clients that send it.
 //
 // Function secrets — ANY ONE of these makes the AI work; with none of them the
 // app falls back to the keyless translators and says so in `note`:
+//   FREEROUTER_API_KEY  (free; tried first — never commit it, this repo is public)
 //   OPENAI_API_KEY      (+ optional OPENAI_MODEL, default gpt-4o-mini)
 //   OPENROUTER_API_KEY
 //   GEMINI_API_KEY

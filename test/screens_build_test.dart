@@ -26,6 +26,7 @@ import 'package:sozqor/features/teams/team_war_screen.dart';
 import 'package:sozqor/features/teams/teams_screen.dart';
 import 'package:sozqor/features/arena/leaderboard_screen.dart';
 import 'package:sozqor/features/arena/league_screen.dart';
+import 'package:sozqor/features/arena/room_screen.dart';
 import 'package:sozqor/features/arena/tournament_run_screen.dart';
 import 'package:sozqor/features/arena/tournament_screen.dart';
 import 'package:sozqor/features/events/events_screen.dart';
@@ -71,6 +72,7 @@ const _screens = <String, Widget>{
   'friends': FriendsScreen(),
   'teams': TeamsScreen(),
   'team war': TeamWarScreen(),
+  'room': RoomScreen(),
   'leaderboard': LeaderboardScreen(),
   'settings': SettingsScreen(),
   'account': AccountScreen(),

@@ -11,6 +11,16 @@
 // long is left. Rules, who may enter and what is won are a tap away rather
 // than stacked on the card, because five events each explaining themselves in
 // a paragraph is a wall nobody reads.
+//
+// 5.0 fixes three things EN-27 names (see events_repo.dart for why each one
+// existed). A progress bar only appeared once `bump_event` had created a row,
+// so an untouched event looked inert until it abruptly did not — the screen
+// joins on open now. `claim_event_prize` had been on the server since events
+// shipped and nothing called it, so the XP and the cosmetic an event promised
+// were unreachable. And the countdown was a static string computed once, so
+// "уақыт қалды" was as stale as the last rebuild.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,11 +32,67 @@ import '../../data/models/app_event.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 
-class EventsScreen extends ConsumerWidget {
+class EventsScreen extends ConsumerStatefulWidget {
   const EventsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<EventsScreen> createState() => _EventsScreenState();
+}
+
+class _EventsScreenState extends ConsumerState<EventsScreen> {
+  Timer? _clock;
+  bool _joined = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The countdown was computed once and never again, so "3 сағат қалды" was
+    // as old as the last rebuild. A minute is as often as it needs to change.
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _joinAll());
+  }
+
+  @override
+  void dispose() { _clock?.cancel(); super.dispose(); }
+
+  /// Gives every visible event a progress row, so its bar exists from the
+  /// first look rather than appearing after the first bump.
+  Future<void> _joinAll() async {
+    if (_joined) return;
+    _joined = true;
+    final events = await ref.read(activeEventsProvider.future)
+        .catchError((_) => const <AppEvent>[]);
+    final progress = ref.read(eventProgressProvider).valueOrNull ?? const {};
+    final repo = ref.read(eventsRepoProvider);
+    var changed = false;
+    for (final e in events) {
+      if (progress.containsKey(e.id)) continue;
+      await repo.join(e.id);
+      changed = true;
+    }
+    if (changed && mounted) ref.invalidate(eventProgressProvider);
+  }
+
+  Future<void> _claim(AppEvent e) async {
+    try {
+      final xp = await ref.read(eventsRepoProvider).claimPrize(e.id);
+      ref.invalidate(eventProgressProvider);
+      refreshAll(ref);
+      if (mounted) {
+        sqSnack(context, xp > 0
+            ? trp('Сыйлық алынды: +{n} XP', {'n': '$xp'})
+            : tr('Сыйлық алынды'));
+      }
+    } catch (err) {
+      if (mounted) sqSnack(context, humanError(err), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(langProvider); // repaint on a language switch
     final events = ref.watch(activeEventsProvider);
     final progress = ref.watch(eventProgressProvider);
 
@@ -68,7 +134,9 @@ class EventsScreen extends ConsumerWidget {
                   _EventCard(
                     event: e,
                     progress: progress.valueOrNull?[e.id],
-                    onTap: () => _openDetail(context, e, progress.valueOrNull?[e.id]),
+                    onTap: () =>
+                        _openDetail(context, e, progress.valueOrNull?[e.id]),
+                    onClaim: () => _claim(e),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -93,8 +161,10 @@ class _EventCard extends StatelessWidget {
   final AppEvent event;
   final EventProgress? progress;
   final VoidCallback onTap;
+  final VoidCallback onClaim;
   const _EventCard({
-    required this.event, required this.progress, required this.onTap});
+    required this.event, required this.progress,
+    required this.onTap, required this.onClaim});
 
   @override
   Widget build(BuildContext context) {
@@ -151,16 +221,49 @@ class _EventCard extends StatelessWidget {
             const SizedBox(height: 13),
             SqTrack(progress!.ratio, color: tint),
             const SizedBox(height: 6),
-            Text(
-              done
-                  ? tr('Аяқталды')
-                  : trp('{p1} / {p2}', {
-                      'p1': '${progress!.progress}',
-                      'p2': '${progress!.target}',
-                    }),
-              style: TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w700,
-                color: done ? AppColors.mint : AppColors.text3(dark))),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    done
+                        ? tr('Аяқталды')
+                        : trp('{p1} / {p2}', {
+                            'p1': '${progress!.progress}',
+                            'p2': '${progress!.target}',
+                          }),
+                    style: TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w700,
+                      color: done ? AppColors.mint : AppColors.text3(dark))),
+                ),
+                // EN-27 asks for "what remains" as well as "what is done", and
+                // a bar alone answers only the second.
+                if (!done)
+                  Text(
+                    trp('тағы {n}', {'n': '${progress!.remaining}'}),
+                    style: TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w700,
+                      color: AppColors.text3(dark))),
+              ],
+            ),
+          ],
+
+          // The reward the event promised. claim_event_prize has been on the
+          // server since events shipped and nothing ever called it, so every
+          // finished event has been sitting on an uncollected prize.
+          if (progress?.canClaim ?? false) ...[
+            const SizedBox(height: 12),
+            SqAction(trp('Сыйлықты алу · +{n} XP', {'n': '${event.xpReward}'}),
+              icon: PhosphorIconsFill.gift,
+              tone: SqTone.green,
+              height: 44,
+              onTap: onClaim),
+          ] else if (progress?.claimed ?? false) ...[
+            const SizedBox(height: 10),
+            SqChip(tr('Сыйлық алынды'),
+              icon: PhosphorIconsFill.checkCircle,
+              tint: AppColors.green,
+              radius: 999,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5)),
           ],
 
           const SizedBox(height: 11),

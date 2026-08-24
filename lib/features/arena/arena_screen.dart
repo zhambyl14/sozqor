@@ -35,6 +35,7 @@ import 'leaderboard_screen.dart';
 import 'league_screen.dart';
 import 'match_result_screen.dart';
 import 'rematch_series.dart';
+import 'room_screen.dart';
 import 'tournament_screen.dart';
 
 enum _Opponent { ranked, bot, friend }
@@ -491,6 +492,44 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 14),
+
+        // EN-44: `battles` has p1 and p2 and nothing else, so every
+        // head-to-head mode here is structurally two people. A room is the
+        // missing shape — three or four friends on one question set.
+        SqPanel(
+          radius: 20,
+          padding: const EdgeInsets.all(16),
+          fill: AppColors.soft(AppColors.primary, d),
+          border: AppColors.line(AppColors.primary, d),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const RoomScreen())),
+          child: Row(
+            children: [
+              const SqTintBox(PhosphorIconsFill.usersThree,
+                tint: AppColors.primary, size: 40, solid: true),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(tr('Топтық баттл'),
+                      style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w800,
+                        color: AppColors.text(d))),
+                    Text(tr('3–4 доспен бір бөлмеде'),
+                      style: TextStyle(
+                        fontSize: 11.5, fontWeight: FontWeight.w600,
+                        color: AppColors.onSoft(AppColors.primary, d))),
+                  ],
+                ),
+              ),
+              Icon(PhosphorIconsBold.caretRight,
+                size: 16, color: AppColors.onSoft(AppColors.primary, d)),
+            ],
+          ),
         ),
         const SizedBox(height: 14),
 

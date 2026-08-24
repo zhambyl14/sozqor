@@ -138,11 +138,17 @@ class AppEvent {
 class EventProgress {
   final int eventId, progress, target;
   final bool completed;
+  /// Whether the prize has been collected. The column has been on the table
+  /// since events shipped and nothing read it, which is why an event could be
+  /// finished and still offer its reward for ever (EN-27).
+  final bool claimed;
+
   const EventProgress({
     required this.eventId,
     required this.progress,
     required this.target,
     required this.completed,
+    this.claimed = false,
   });
 
   factory EventProgress.fromMap(Map<String, dynamic> m) => EventProgress(
@@ -150,7 +156,13 @@ class EventProgress {
     progress:  (m['progress'] ?? 0) as int,
     target:    (m['target'] ?? 1) as int,
     completed: (m['completed'] ?? false) as bool,
+    claimed:   (m['claimed'] ?? false) as bool,
   );
 
   double get ratio => target == 0 ? 0 : (progress / target).clamp(0.0, 1.0);
+
+  /// Done, and the reward is still sitting there.
+  bool get canClaim => completed && !claimed;
+
+  int get remaining => (target - progress).clamp(0, target);
 }

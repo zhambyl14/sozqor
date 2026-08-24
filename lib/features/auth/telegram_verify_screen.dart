@@ -211,8 +211,17 @@ class _TelegramVerifyScreenState extends ConsumerState<TelegramVerifyScreen> {
                   SqPanel(
                     child: Column(children: [
                       _Step(n: 1, text: tr('Түймені бас — Telegram ашылады')),
+                      // EN-5 / KK-9: name the button, not the outcome. The
+                      // bot opens Telegram's contact keyboard with exactly
+                      // this label on it, so the learner is looking for a
+                      // phrase they can actually see rather than working out
+                      // what "share your number" is supposed to mean.
                       _Step(n: 2,
-                        text: tr('Ботта «Start» → нөмірді бөлісу')),
+                        text: byLang(
+                          kk: 'Ботта «Start» → төмендегі «📱 Нөмірмен бөлісу» '
+                              'түймесін бас',
+                          ru: 'В боте «Start» → нажми внизу кнопку '
+                              '«📱 Поделиться контактом»')),
                       _Step(n: 3,
                         text: tr('Осы бетке орал'), last: true),
                     ]),

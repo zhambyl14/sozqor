@@ -75,8 +75,18 @@ class PhoneAuthRepo {
   }
 
   /// Opens a verification request and returns the Telegram deep link.
+  ///
+  /// The app language rides along (EN-4 / KK-9). The bot is a separate process
+  /// with no session and no profile to read — all it ever receives is the
+  /// verification code in a /start payload — so unless the language is stored
+  /// on that row, every learner is answered in Kazakh, including one who set
+  /// the app to Russian before they ever reached Telegram.
   Future<VerifyRequest> startVerification({String purpose = 'signup'}) async {
-    final data = await _call({'action': 'start', 'purpose': purpose});
+    final data = await _call({
+      'action': 'start',
+      'purpose': purpose,
+      'lang': AppLang.current,
+    });
     return VerifyRequest(
       code: (data['code'] ?? '').toString(),
       deepLink: data['deep_link']?.toString(),

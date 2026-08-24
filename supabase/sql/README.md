@@ -21,6 +21,7 @@ must **not** be run twice.
 | 5 | `v5_teams.sql` | EN-24 / EN-25 / EN-26 / KK-4 — teams, the weekly team challenge and the clan war | The team screens show "команда жүйесі әлі қосылмаған" and nothing else |
 | 6 | `v5_translation_review.sql` | EN-49 / EN-50 / KK-8 — the moderator queue behind the translation gate | The gate still works and still refuses transliterations; the refusals are simply not recorded anywhere |
 | 7 | `v5_league_elo.sql` | EN-19 / KK-3 — the league becomes a rating ladder | The league still ranks on weekly XP and the band never changes with your rating; matchmaking ignores bands. **Run after #1** — it replaces a function that file introduces |
+| 8 | `v5_telegram_lang.sql` | EN-4 / KK-9 — the bot speaks the app's language | The bot answers every learner in Kazakh, including one who set the app to Russian |
 
 `profiles_guard.sql` and `device_tokens.sql` are already applied; they are kept
 for reference.
@@ -65,6 +66,19 @@ contains it and nothing should.
 the edge function currently calls under the caller's own token. After running
 it, that one call has to use `SUPABASE_SERVICE_ROLE_KEY` (already available to
 the function) or writing a new dictionary entry will start failing.
+
+## The Telegram bot
+
+`supabase/functions/tg-webhook/` was live but had never been in this
+repository, so nobody could read it, review it or redeploy it. It is written
+down now. Its own header carries the secrets it needs and the exact curl call
+that registers the webhook. Deploy it with `--no-verify-jwt` — Telegram cannot
+send a Supabase JWT.
+
+`phone-auth` is the other half of that flow and is still not in the repo. It
+now receives a `lang` field on its `start` action; it has to store that on the
+`phone_verifications` row (the column is added by #8) or the bot has nothing to
+read and EN-4 stays broken.
 
 ## Adding a client-editable column later
 

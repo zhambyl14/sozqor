@@ -32,6 +32,24 @@ enum AiSource {
   basic,    // keyless translation used while the AI quota is spent
 }
 
+/// The translation gate refused every candidate for this word (EN-49 / KK-8).
+///
+/// Deliberately its own type rather than a generic Exception. "We could not
+/// translate this word" and "your connection failed" call for different words
+/// on screen and different behaviour from the learner — one is worth retrying
+/// and the other never will be. Before the gate existed the second case did
+/// not arise, because a transliteration was always available to hand back.
+class TranslationRejected implements Exception {
+  /// One of: script, identity, translit, length, disagree.
+  final String reason;
+  /// Already localised by the edge function, which knows the app language.
+  final String message;
+  const TranslationRejected(this.reason, this.message);
+
+  @override
+  String toString() => message;
+}
+
 class AiResult {
   final DictEntry entry;
   final AiSource source;
@@ -146,6 +164,22 @@ class SozQorAI {
   /// translation rather than a full AI entry.
   Future<(DictEntry, bool)> _askModel(String term) async {
     final data = await _invoke({'task': 'translate', 'text': term});
+
+    // The translation gate refused this candidate (EN-49 / KK-8): it was a
+    // transliteration, the word echoed back, or two models that disagreed.
+    // The distinction matters to the UI — "we could not translate this" is a
+    // different thing to say than "check your connection", and saying the
+    // wrong one is how a learner ends up retrying a word that will never
+    // resolve.
+    if ((data['source'] ?? '').toString() == 'rejected') {
+      throw TranslationRejected(
+        (data['reason'] ?? '').toString(),
+        (data['message'] ?? '').toString().isEmpty
+            ? tr('Аударма табылмады')
+            : data['message'].toString(),
+      );
+    }
+
     final raw = data['entry'];
     if (raw == null) throw Exception(tr('Аударма табылмады'));
     final entry = DictEntry.fromMap(Map<String, dynamic>.from(raw as Map));

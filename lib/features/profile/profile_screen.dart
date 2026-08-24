@@ -16,9 +16,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/word.dart';
 import '../../providers.dart';
-import '../arena/clan_screen.dart';
 import '../arena/leaderboard_screen.dart';
 import '../auth/guest_gate.dart';
+import '../teams/teams_screen.dart';
 import 'achievements_screen.dart';
 import 'friends_screen.dart';
 import 'report_screen.dart';
@@ -279,9 +279,9 @@ class ProfileScreen extends ConsumerWidget {
             leading: const SqTintBox(PhosphorIconsFill.flagBanner,
               tint: AppColors.sky, size: 38),
             title: tr('Менің командам'),
-            subtitle: tr('Апталық команда жарысы'),
+            subtitle: tr('Апталық мақсат және шайқас'),
             chevron: true,
-            onTap: () => open(const ClanScreen())),
+            onTap: () => open(const TeamsScreen())),
           SqTile(
             leading: const SqTintBox(PhosphorIconsFill.ranking,
               tint: AppColors.amber, size: 38),

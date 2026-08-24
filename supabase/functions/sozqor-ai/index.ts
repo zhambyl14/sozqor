@@ -37,6 +37,20 @@ const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
+// FreeRouter — an OpenAI-compatible gateway over several models at no cost.
+// Set FREEROUTER_API_KEY in the function's secrets; never commit the key, the
+// repository is public.
+const FREEROUTER_KEY = Deno.env.get("FREEROUTER_API_KEY") ?? "";
+const FREEROUTER_URL = "https://freerouter.eu.cc/v1/chat/completions";
+
+// Probed against "шамшырақ" (a beacon / lamp), the word this release exists to
+// stop mistranslating: glm-5.2 answered "beacon", kiro-auto answered
+// "sunflower". Both reported 0.95 confidence. That is the whole reason
+// self-reported confidence is not one of the gate's checks below and
+// cross-model agreement is — a model is not able to tell you when it is wrong.
+const FREEROUTER_PRIMARY = "glm-5.2";
+const FREEROUTER_SECOND = "kiro-auto";
+
 // OpenRouter retired the `:free` tier on every model this list used to name —
 // each one now 404s with "unavailable for free". These are priced at zero by
 // /api/v1/models today. They are tried AFTER Gemini because a free model that
@@ -225,6 +239,38 @@ async function callGemini(
 /// as "unknown", "жалаңаш" as "silly" and "yellowish" — and dict_upsert makes
 /// one bad answer permanent for every learner. Where nothing is persisted
 /// (chat, explain, enrich) they are a genuine safety net and stay in the chain.
+/// FreeRouter speaks the OpenAI chat-completions shape, so this is the same
+/// call as callOpenAI with a different base URL and no cost.
+async function callFreeRouter(
+  model: string,
+  prompt: string,
+  temperature: number,
+  maxTokens: number,
+) {
+  if (!FREEROUTER_KEY) throw new Error(NO_KEY_MSG);
+  const res = await fetch(FREEROUTER_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${FREEROUTER_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      temperature,
+      max_tokens: maxTokens,
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!res.ok) {
+    throw new Error(`freerouter ${model} ${res.status} ${await res.text()}`);
+  }
+  const json = await res.json();
+  const text = json?.choices?.[0]?.message?.content ?? "";
+  if (!text.trim()) throw new Error(`freerouter ${model} empty`);
+  return text as string;
+}
+
 async function complete(
   prompt: string,
   temperature = 0.3,
@@ -232,6 +278,18 @@ async function complete(
   trustedOnly = false,
 ) {
   const problems: string[] = [];
+
+  // FreeRouter first: it costs nothing and, on the probe that matters, it was
+  // the only provider configured here that got the hard word right.
+  if (FREEROUTER_KEY) {
+    for (const model of [FREEROUTER_PRIMARY, FREEROUTER_SECOND]) {
+      try {
+        return await callFreeRouter(model, prompt, temperature, maxTokens);
+      } catch (e) {
+        problems.push(String(e));
+      }
+    }
+  }
 
   if (OPENAI_KEY) {
     try {
@@ -355,7 +413,12 @@ async function freeTranslate(
   for (const provider of [viaGoogle, viaMyMemory, viaLingva]) {
     try {
       const out = tidy(await provider(text, from, to), text, to);
-      if (out && out.toLowerCase() !== text.toLowerCase()) return out;
+      if (!out) continue;
+      // The gate, not just "is it different from the input". MyMemory and
+      // Lingva answer Kazakh with a respelling of the Kazakh, which passes
+      // every test tidy() makes and is the exact defect this release names.
+      if (gate(text, out, to as "en" | "kk" | "ru") !== null) continue;
+      return out;
     } catch {
       // try the next provider
     }
@@ -364,7 +427,142 @@ async function freeTranslate(
 }
 
 const hasCyrillic = (s: string) => /[Ѐ-ӿ]/.test(s);
+const hasLatin = (s: string) => /[A-Za-z]/.test(s);
 const isKazakhOnly = (s: string) => /[әғқңөұүһі]/i.test(s);
+
+// ── The translation gate (EN-49 / KK-8) ────────────────────
+//
+// The named bug: "шамшырақ" was answered with "shamshyraq". That is the word
+// written in Latin letters, not translated, and it reached learners as if it
+// were a real answer.
+//
+// It got through because nothing was looking for it. `tidy()` checks the
+// SCRIPT of an answer — Latin for English, Cyrillic for Kazakh — and a
+// transliteration passes that check perfectly: it is Latin, it is one word, it
+// is about the right length. MyMemory and Lingva, two of the three keyless
+// providers, return transliterations for Kazakh routinely.
+//
+// So the gate below asks the question the script check cannot: is this answer
+// simply the source word respelled? Everything is structural. Nothing here
+// asks the model how sure it is, because the probe that motivated this file
+// had two models answer the same word with "beacon" and "sunflower" and both
+// report 0.95.
+
+/// Kazakh Cyrillic to Latin, in the shape the transliterating providers use.
+/// Digraphs first — a naive per-character table turns "ш" into "s" and stops
+/// "shamshyraq" from matching "шамшырақ" at all, which is the one comparison
+/// this table exists to make.
+const TRANSLIT: Array<[RegExp, string]> = [
+  [/щ/g, "sh"], [/ш/g, "sh"], [/ч/g, "ch"], [/ц/g, "ts"],
+  [/ю/g, "yu"], [/я/g, "ya"], [/ё/g, "yo"], [/ж/g, "zh"],
+  [/ә/g, "a"], [/ғ/g, "g"], [/қ/g, "q"], [/ң/g, "n"],
+  [/ө/g, "o"], [/ұ/g, "u"], [/ү/g, "u"], [/һ/g, "h"], [/і/g, "i"],
+  [/а/g, "a"], [/б/g, "b"], [/в/g, "v"], [/г/g, "g"], [/д/g, "d"],
+  [/е/g, "e"], [/з/g, "z"], [/и/g, "i"], [/й/g, "y"], [/к/g, "k"],
+  [/л/g, "l"], [/м/g, "m"], [/н/g, "n"], [/о/g, "o"], [/п/g, "p"],
+  [/р/g, "r"], [/с/g, "s"], [/т/g, "t"], [/у/g, "u"], [/ф/g, "f"],
+  [/х/g, "h"], [/ы/g, "y"], [/э/g, "e"], [/ъ/g, ""], [/ь/g, ""],
+];
+
+function romanise(s: string): string {
+  let out = s.toLowerCase();
+  for (const [re, to] of TRANSLIT) out = out.replace(re, to);
+  return out.replace(/[^a-z]/g, "");
+}
+
+/// Levenshtein distance, normalised to 0..1 against the longer string.
+function similarity(a: string, b: string): number {
+  if (!a && !b) return 1;
+  if (!a || !b) return 0;
+  const m = a.length, n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i, ...Array(n).fill(0)];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return 1 - prev[n] / Math.max(m, n);
+}
+
+/// Why a candidate was refused. Also the `failed_check` column of
+/// `translation_reports`, so a moderator can see what the machine objected to.
+type GateFail =
+  | "script"
+  | "identity"
+  | "translit"
+  | "length"
+  | "disagree"
+  | null;
+
+/// Judges one candidate translation of `src` into `to`.
+/// Returns null when the candidate is acceptable, or the reason it is not.
+function gate(src: string, candidate: string, to: "en" | "kk" | "ru"): GateFail {
+  const s = src.trim().toLowerCase();
+  const c = candidate.trim().toLowerCase();
+  if (!c) return "length";
+
+  // SCRIPT. An English answer written in Cyrillic, or a Kazakh/Russian answer
+  // written in Latin, is by definition not a translation into that language.
+  if (to === "en" && hasCyrillic(c)) return "script";
+  if (to !== "en" && !hasCyrillic(c)) return "script";
+
+  // IDENTITY. Answering with the question is not an answer. Compared after
+  // stripping everything but letters so spacing and punctuation cannot hide it.
+  const bare = (x: string) => x.replace(/[^\p{L}]/gu, "");
+  if (bare(s) === bare(c)) return "identity";
+
+  // TRANSLITERATION. The check the script test cannot make: is this the source
+  // word simply respelled? 0.72 is deliberately below a perfect match —
+  // providers differ on ш/sh versus ш/s and on whether қ becomes q or k, so an
+  // exact comparison would let half the transliterations through.
+  if (to === "en" && hasCyrillic(s)) {
+    const romanised = romanise(s);
+    const flat = c.replace(/[^a-z]/g, "");
+    if (romanised.length >= 3 && similarity(romanised, flat) >= 0.72) {
+      return "translit";
+    }
+  }
+
+  // LENGTH. A one-word term does not translate into a sentence, and nothing
+  // here should be five times the length of what was asked.
+  const words = s.split(/\s+/).length;
+  if (words === 1 && c.split(/\s+/).length > 4) return "length";
+  if (c.length > Math.max(48, s.length * 5)) return "length";
+
+  return null;
+}
+
+/// Records what the gate refused, so EN-50's review queue has something to
+/// review and a repeatedly-failing word is visible rather than merely absent.
+/// Never allowed to break a request: a translation that could not be logged is
+/// still a translation that must not be shown.
+async function reportRejection(
+  supabase: ReturnType<typeof createClient>,
+  term: string,
+  candidate: string,
+  failed: GateFail,
+  to: string,
+  provider: string,
+) {
+  try {
+    await supabase.from("translation_reports").insert({
+      term,
+      source_lang: detectLang(term),
+      target_lang: to,
+      candidate,
+      failed_check: failed,
+      provider,
+    });
+  } catch {
+    // the table may not exist yet; the rejection still stands
+  }
+}
 
 /// The source language of a typed term. Kazakh-only letters settle it at
 /// once; otherwise Cyrillic is assumed Russian and corrected later if the
@@ -548,6 +746,74 @@ Deno.serve(async (req) => {
         if (llmError.includes(NO_KEY_MSG)) return fail(say("noKey", lang), 503);
         if (llmError.includes(RATE_MSG)) return fail(say("rate", lang), 429);
         return fail(llmError || say("noTranslation", lang), llmError ? 429 : 400);
+      }
+
+      // ── The gate, before anything is written (EN-49 / KK-8) ──
+      //
+      // This answer is about to become the shared dictionary's answer for
+      // everybody, for ever. A wrong word here is not one learner's problem,
+      // it is the app's. So it has to survive both checks:
+      //
+      //   1. the structural one — script, identity, transliteration, length;
+      //   2. agreement with a second, independent model.
+      //
+      // The second check exists because of the probe in the header: two
+      // models answered "шамшырақ" with "beacon" and "sunflower", each at
+      // 0.95 confidence. Nothing about a single confident answer distinguishes
+      // those two cases, so a single answer is not enough to publish on.
+      const srcLang = detectLang(term);
+      const target: "en" | "kk" | "ru" = srcLang === "en" ? "kk" : "en";
+      const candidate = target === "en" ? en : kk;
+
+      const failed = gate(term, candidate, target);
+      if (failed !== null) {
+        await reportRejection(supabase, term, candidate, failed, target, "llm");
+        return ok({
+          source: "rejected",
+          reason: failed,
+          entry: null,
+          message: say("noTranslation", lang),
+        });
+      }
+
+      // A second opinion, and only for a term the dictionary does not already
+      // hold — this is the one path that writes, so it is the one path worth
+      // spending a second request on.
+      let agreed = true;
+      if (FREEROUTER_KEY) {
+        try {
+          const check = parseJson(await callFreeRouter(
+            FREEROUTER_SECOND,
+            `Translate this ${LANG_NAME[srcLang === "ru" ? "ru" : "kk"] ??
+              "Kazakh"} term into English. Return ONLY {"en":"..."} with the ` +
+            `real meaning. If you do not know it, return {"en":""}.\n` +
+            `Term: "${term}"`,
+            0.1,
+            120,
+          ));
+          const other = clean(check?.en).toLowerCase();
+          // An empty second answer is an abstention, not a contradiction —
+          // one model not knowing a word is not evidence the other is wrong.
+          if (other && target === "en") {
+            agreed = similarity(
+              other.replace(/[^a-z]/g, ""),
+              en.toLowerCase().replace(/[^a-z]/g, ""),
+            ) >= 0.6;
+          }
+        } catch {
+          // No second opinion available. The structural gate already passed,
+          // so the answer stands rather than the learner getting nothing.
+        }
+      }
+
+      if (!agreed) {
+        await reportRejection(supabase, term, en, "disagree", target, "llm");
+        return ok({
+          source: "rejected",
+          reason: "disagree",
+          entry: null,
+          message: say("noTranslation", lang),
+        });
       }
 
       const { data: saved, error } = await supabase.rpc("dict_upsert", {

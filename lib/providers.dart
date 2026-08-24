@@ -18,6 +18,7 @@ import 'data/models/app_event.dart';
 import 'data/models/battle.dart';
 import 'data/models/dict_entry.dart';
 import 'data/models/profile.dart';
+import 'data/models/team.dart';
 import 'data/models/word.dart';
 import 'data/repos/auth_repo.dart';
 import 'data/repos/battle_repo.dart';
@@ -26,6 +27,7 @@ import 'data/repos/cosmetics_repo.dart';
 import 'data/repos/dictionary_repo.dart';
 import 'data/repos/events_repo.dart';
 import 'data/repos/profile_repo.dart';
+import 'data/repos/teams_repo.dart';
 import 'data/repos/words_repo.dart';
 import 'data/supa.dart';
 import 'services/meta_store.dart';
@@ -485,6 +487,52 @@ final incomingInvitesProvider = StreamProvider<List<Battle>>((ref) {
 final unlockedAchievementsProvider = FutureProvider<Set<String>>(
     (ref) => ref.watch(profileRepoProvider).unlockedAchievements());
 
+// ── Teams (EN-24, EN-25, EN-26, KK-4) ──────────────────────
+final teamsRepoProvider = Provider((_) => TeamsRepo());
+
+/// The caller's team, or null when they are not in one.
+///
+/// Everything else on the teams screen keys off this: the weekly challenge and
+/// the war only exist for somebody who has joined something.
+final myTeamProvider = FutureProvider<Team?>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(teamsRepoProvider).myTeam();
+});
+
+final teamRosterProvider =
+    FutureProvider.family<List<TeamMemberRow>, int>((ref, teamId) =>
+        ref.watch(teamsRepoProvider).roster(teamId));
+
+/// The weekly team challenge. Reading it also syncs whatever XP the learner
+/// earned elsewhere into the team total, so the bar is never behind the
+/// player looking at it.
+final teamWeeklyProvider = FutureProvider<TeamWeekly?>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(teamsRepoProvider).weekly();
+});
+
+final teamWarProvider = FutureProvider<WarState?>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(teamsRepoProvider).war();
+});
+
+final teamInvitesProvider = FutureProvider<List<TeamInvite>>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(teamsRepoProvider).invites();
+});
+
+final teamBoardProvider = FutureProvider<List<TeamBoardRow>>(
+    (ref) => ref.watch(teamsRepoProvider).board());
+
+/// Refreshes everything a team action can move.
+void refreshTeam(WidgetRef ref) {
+  ref.invalidate(myTeamProvider);
+  ref.invalidate(teamWeeklyProvider);
+  ref.invalidate(teamWarProvider);
+  ref.invalidate(teamInvitesProvider);
+  ref.invalidate(teamBoardProvider);
+}
+
 /// The learner plus their friends, treated as a weekly team. There is no clan
 /// table on the server — a "clan" here is simply everybody you have added,
 /// racing a shared weekly XP goal.
@@ -493,7 +541,7 @@ final teamProvider = FutureProvider<TeamStanding>((ref) async {
   final board = ref.watch(boardRepoProvider);
   final friends = await board.friends();
 
-  // The countdown on clan_screen.dart promises a race that resets every
+  // The old clan screen promised a race that resets every
   // Monday — `Profile.xp`/`BoardRow.value` are lifetime totals that never
   // do, so the team total must come from actual weekly XP instead.
   final ids = [if (me != null) me.id, ...friends.map((f) => f.userId)];

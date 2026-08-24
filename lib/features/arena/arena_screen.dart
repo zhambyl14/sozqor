@@ -30,7 +30,7 @@ import '../auth/guest_gate.dart';
 import '../events/events_screen.dart';
 import '../play/play_session_screen.dart';
 import 'battle_screen.dart';
-import 'clan_screen.dart';
+import '../teams/teams_screen.dart';
 import 'leaderboard_screen.dart';
 import 'league_screen.dart';
 import 'match_result_screen.dart';
@@ -776,7 +776,11 @@ class _TeamCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final d = isDark(context);
-    final team = ref.watch(teamProvider).valueOrNull;
+    // 5.0 points this at the real team system. `teamProvider` still exists and
+    // still races your friends, but it describes a group nobody joined and
+    // nobody can leave — it is no longer what this card is about.
+    final team = ref.watch(myTeamProvider).valueOrNull;
+    final weekly = ref.watch(teamWeeklyProvider).valueOrNull;
 
     return SqPanel(
       radius: 20,
@@ -787,7 +791,7 @@ class _TeamCard extends ConsumerWidget {
         if (!await requireAccount(context, ref, GuestFeature.friends)) return;
         if (!context.mounted) return;
         await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ClanScreen()));
+          MaterialPageRoute(builder: (_) => const TeamsScreen()));
       },
       child: Row(
         children: [
@@ -799,15 +803,19 @@ class _TeamCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(tr('Менің командам'),
+                Text(team?.name ?? tr('Менің командам'),
                   style: TextStyle(
                     fontSize: 14, fontWeight: FontWeight.w800,
                     color: AppColors.text(d))),
                 Text(
                   team == null
-                      ? tr('Жүктелуде…')
-                      : trp('Апталық жарыс: {done} / {goal}',
-                          {'done': '${team.total}', 'goal': '${team.goal}'}),
+                      ? tr('Командаға қосыл немесе өзің құр')
+                      : weekly == null
+                          ? trp('{n} мүше', {'n': '${team.memberCount}'})
+                          : trp('Апталық мақсат: {done} / {goal}', {
+                              'done': '${weekly.progress}',
+                              'goal': '${weekly.goal}',
+                            }),
                   style: TextStyle(
                     fontSize: 11.5, fontWeight: FontWeight.w600,
                     color: AppColors.onSoft(AppColors.sky, d))),

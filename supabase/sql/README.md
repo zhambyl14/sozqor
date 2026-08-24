@@ -18,6 +18,8 @@ must **not** be run twice.
 | 2 | `v5_friend_requests.sql` | EN-15 / EN-16 / KK-2 | The friends screen shows "функция табылмады" on add; anybody can still be added without consent |
 | 3 | `v5_delete_account.sql` | EN-45 / KK-10 | "Аккаунтты жою" errors instead of deleting |
 | 4 | `v5_coins_currency.sql` | EN-42 / KK-6 | The shop still spends XP while the UI says coins — **the one real mismatch**, so run this in the same sitting as deploying the app |
+| 5 | `v5_teams.sql` | EN-24 / EN-25 / EN-26 / KK-4 — teams, the weekly team challenge and the clan war | The team screens show "команда жүйесі әлі қосылмаған" and nothing else |
+| 6 | `v5_translation_review.sql` | EN-49 / EN-50 / KK-8 — the moderator queue behind the translation gate | The gate still works and still refuses transliterations; the refusals are simply not recorded anywhere |
 
 `profiles_guard.sql` and `device_tokens.sql` are already applied; they are kept
 for reference.
@@ -46,6 +48,22 @@ opponent's history and their rating too.
 to match the rate `coins` accrues at, tops each account up to at least what its
 unspent XP could have bought, zeroes `xp_spent`, and rewrites `buy_cosmetic`.
 **Not idempotent** — running it twice divides prices twice.
+
+## Edge function secrets
+
+`supabase/functions/sozqor-ai` needs `FREEROUTER_API_KEY` set in the function's
+secrets (Supabase dashboard → Edge Functions → sozqor-ai → Secrets). It is a
+free OpenAI-compatible gateway and it is now the first provider tried, because
+on the probe that motivated the translation gate it was the only one configured
+here that answered the hard word correctly.
+
+**Never put that key in this repository — it is public.** Nothing in the tree
+contains it and nothing should.
+
+`v5_translation_review.sql` revokes `dict_upsert` from `authenticated`, which
+the edge function currently calls under the caller's own token. After running
+it, that one call has to use `SUPABASE_SERVICE_ROLE_KEY` (already available to
+the function) or writing a new dictionary entry will start failing.
 
 ## Adding a client-editable column later
 

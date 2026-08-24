@@ -22,7 +22,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:sozqor/core/theme/app_theme.dart';
 import 'package:sozqor/features/arena/arena_screen.dart';
-import 'package:sozqor/features/arena/clan_screen.dart';
+import 'package:sozqor/features/teams/team_war_screen.dart';
+import 'package:sozqor/features/teams/teams_screen.dart';
 import 'package:sozqor/features/arena/leaderboard_screen.dart';
 import 'package:sozqor/features/arena/league_screen.dart';
 import 'package:sozqor/features/arena/tournament_screen.dart';
@@ -61,7 +62,8 @@ const _screens = <String, Widget>{
   'shop': ShopScreen(),
   'report': ReportScreen(),
   'friends': FriendsScreen(),
-  'clan': ClanScreen(),
+  'teams': TeamsScreen(),
+  'team war': TeamWarScreen(),
   'leaderboard': LeaderboardScreen(),
   'settings': SettingsScreen(),
   'account': AccountScreen(),

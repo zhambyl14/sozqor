@@ -36,11 +36,13 @@ import 'package:sozqor/features/home/story_chapter_screen.dart';
 import 'package:sozqor/features/home/story_screen.dart';
 import 'package:sozqor/features/moderator/moderator_screen.dart';
 import 'package:sozqor/features/play/ai_chat_screen.dart';
-import 'package:sozqor/features/play/packs_screen.dart';
+import 'package:sozqor/features/words/collection_detail_screen.dart';
+import 'package:sozqor/features/words/collections_screen.dart';
 import 'package:sozqor/features/play/play_hub_screen.dart';
 import 'package:sozqor/features/profile/account_screen.dart';
 import 'package:sozqor/features/profile/achievements_screen.dart';
 import 'package:sozqor/features/profile/friends_screen.dart';
+import 'package:sozqor/data/models/collection.dart';
 import 'package:sozqor/features/profile/legal_screen.dart';
 import 'package:sozqor/features/profile/profile_screen.dart';
 import 'package:sozqor/features/profile/public_profile_screen.dart';
@@ -81,7 +83,9 @@ const _screens = <String, Widget>{
   'chest': ChestScreen(),
   'story': StoryScreen(),
   'story chapter': StoryChapterScreen(chapter: 0),
-  'packs': PacksScreen(),
+  'collections': CollectionsScreen(),
+  'collection detail': CollectionDetailScreen(
+    collection: WordCollection(id: 1, titleKk: 'Тест')),
   'explore': ExploreScreen(),
   'add word': AddWordScreen(),
   'ai chat': AiChatScreen(),

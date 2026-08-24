@@ -14,6 +14,13 @@ class Word {
   final DateTime? nextReview, lastReviewed;
   final DateTime createdAt;
 
+  /// The shared-dictionary row this word came from, when it came from one.
+  ///
+  /// Null for a word typed by hand or produced by the AI, which is why a word
+  /// collection can only hold some of the bank: a pack entry points at a
+  /// dictionary row, and there is nothing for a hand-typed word to point at.
+  final int? dictionaryId;
+
   const Word({
     required this.id,
     required this.userId,
@@ -38,6 +45,7 @@ class Word {
     this.isLearned  = false,
     this.nextReview,
     this.lastReviewed,
+    this.dictionaryId,
     required this.createdAt,
   });
 
@@ -58,6 +66,8 @@ class Word {
     emoji:         m['emoji']?.toString(),
     synonyms:      _strList(m['synonyms']),
     antonyms:      _strList(m['antonyms']),
+    dictionaryId:  m['dictionary_id'] == null
+                     ? null : (m['dictionary_id'] as num).toInt(),
     cefr:          (m['cefr']   ?? 'A2').toString(),
     topic:         (m['topic']  ?? 'general').toString(),
     source:        (m['source'] ?? 'manual').toString(),

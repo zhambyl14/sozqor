@@ -16,6 +16,7 @@ import 'core/theme/app_colors.dart';
 import 'core/widgets/sq.dart' show sqHexColor;
 import 'data/models/app_event.dart';
 import 'data/models/battle.dart';
+import 'data/models/collection.dart';
 import 'data/models/dict_entry.dart';
 import 'data/models/profile.dart';
 import 'data/models/team.dart';
@@ -23,6 +24,7 @@ import 'data/models/word.dart';
 import 'data/repos/auth_repo.dart';
 import 'data/repos/battle_repo.dart';
 import 'data/repos/board_repo.dart';
+import 'data/repos/collections_repo.dart';
 import 'data/repos/cosmetics_repo.dart';
 import 'data/repos/dictionary_repo.dart';
 import 'data/repos/events_repo.dart';
@@ -486,6 +488,19 @@ final incomingInvitesProvider = StreamProvider<List<Battle>>((ref) {
 
 final unlockedAchievementsProvider = FutureProvider<Set<String>>(
     (ref) => ref.watch(profileRepoProvider).unlockedAchievements());
+
+// ── Word collections (EN-32, EN-34, EN-38, KK-5) ───────────
+final collectionsRepoProvider = Provider((_) => CollectionsRepo());
+
+/// Every pack the learner can see, with the REAL word count on each.
+///
+/// The count is the point: `kWordPacks` carried a hand-typed `size` — 120 for
+/// "IELTS 6.5+" — while the words were whatever the dictionary happened to
+/// hold, which was fourteen. This one is count(*).
+final collectionsProvider = FutureProvider<List<WordCollection>>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(collectionsRepoProvider).catalogue();
+});
 
 // ── Teams (EN-24, EN-25, EN-26, KK-4) ──────────────────────
 final teamsRepoProvider = Provider((_) => TeamsRepo());

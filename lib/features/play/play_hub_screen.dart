@@ -17,8 +17,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/word.dart';
 import '../../providers.dart';
+import '../words/collections_screen.dart';
 import 'ai_chat_screen.dart';
-import 'packs_screen.dart';
 import 'play_session_screen.dart';
 import 'pronounce_screen.dart';
 
@@ -396,7 +396,11 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
           padding: const EdgeInsets.all(15),
           fill: AppColors.soft(AppColors.amber, d),
           border: AppColors.line(AppColors.amber, d),
-          onTap: () => _open(const PacksScreen()),
+          // EN-32 / EN-34: the collections screen replaces the pack list.
+          // A pack is a list of rows on the server now, so the count on it is
+          // count(*) rather than a literal typed into the app — and a learner
+          // can build one of their own.
+          onTap: () => _open(const CollectionsScreen()),
           child: Row(
             children: [
               const SqTintBox(PhosphorIconsFill.stack,

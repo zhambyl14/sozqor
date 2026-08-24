@@ -13,7 +13,6 @@
 // weekly report are three icon tiles rather than three cards of prose: same
 // destinations, a fraction of the reading.
 
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,9 +21,11 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import '../../core/constants/game_meta.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
+import '../../data/models/dict_entry.dart';
 import '../../data/models/profile.dart';
 import '../../data/models/word.dart';
 import '../../data/repos/profile_repo.dart';
+import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/meta_store.dart';
 import '../../services/sozqor_ai.dart';
@@ -36,7 +37,6 @@ import '../profile/friends_screen.dart';
 import '../profile/report_screen.dart';
 import '../profile/shop_screen.dart';
 import '../words/add_word_screen.dart';
-import '../words/word_detail_screen.dart';
 import 'chest_screen.dart';
 import 'missions_screen.dart';
 import 'story_screen.dart';
@@ -130,6 +130,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final due = ref.watch(dueCountProvider).valueOrNull ?? 0;
     final quests = ref.watch(questsProvider);
     final meta = ref.watch(metaProvider);
+    final dailyWord = ref.watch(dailyWordProvider);
     final claimedQuests =
         ref.watch(dailyProgressProvider).valueOrNull?.claimed ?? const <String>[];
 
@@ -177,9 +178,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         const SizedBox(height: 14),
 
-        if (words.isNotEmpty)
-          _WordOfDay(words: words, onOpen: _open)
-        else
+        // EN-10: a word the learner does not have yet, offered with a way to
+        // save it. Until the level pool arrives there is nothing to show, and
+        // a learner with an empty bank is pointed at adding their first word
+        // instead.
+        if (dailyWord != null)
+          _WordOfDay(key: ValueKey(dailyWord.id), entry: dailyWord)
+        else if (words.isEmpty)
           _FirstWordCard(onTap: () => _open(const AddWordScreen())),
         const SizedBox(height: 18),
 
@@ -853,55 +858,109 @@ class _QuestRowState extends ConsumerState<_QuestRow> {
 
 // ── Word of the day ────────────────────────────────────────
 
-class _WordOfDay extends ConsumerWidget {
-  final List<Word> words;
-  final Future<void> Function(Widget) onOpen;
-  const _WordOfDay({required this.words, required this.onOpen});
+class _WordOfDay extends ConsumerStatefulWidget {
+  final DictEntry entry;
+  const _WordOfDay({super.key, required this.entry});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_WordOfDay> createState() => _WordOfDayState();
+}
+
+class _WordOfDayState extends ConsumerState<_WordOfDay> {
+  bool _busy = false;
+  /// Set once this word is known to be in the bank — either it already was,
+  /// or this screen just put it there.
+  bool _saved = false;
+
+  /// EN-10: adds the word of the day, and says so plainly when it is already
+  /// saved instead of quietly making a second copy.
+  ///
+  /// The check is a server query rather than a look through the loaded words,
+  /// because the bank is paged now and its in-memory list is only the pages
+  /// scrolled so far — asking it would call a word new whenever it happened
+  /// to sit on a page nobody had reached.
+  Future<void> _add() async {
+    if (_busy || _saved) return;
+    if (!await requireAccount(context, ref, GuestFeature.saveWord)) return;
+    if (!mounted) return;
+    setState(() => _busy = true);
+    final e = widget.entry;
+    try {
+      if (await ref.read(wordsRepoProvider).exists(e.kk, e.en)) {
+        if (!mounted) return;
+        setState(() { _saved = true; _busy = false; });
+        sqSnack(context, tr('Бұл сөз сөздігіңде бар'));
+        return;
+      }
+      await ref.read(wordsRepoProvider).addFromDict(e);
+      await ref.read(profileRepoProvider).bumpWordsAdded();
+      if (!mounted) return;
+      setState(() { _saved = true; _busy = false; });
+      refreshAll(ref);
+      sqSnack(context, tr('Сөздікке қосылды'));
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      sqSnack(context, humanError(err), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final d = isDark(context);
-    final now = DateTime.now();
-    final seed = now.year * 10000 + now.month * 100 + now.day;
-    final w = words[Random(seed).nextInt(words.length)];
+    final e = widget.entry;
     final lang = ref.watch(nativeLangProvider);
 
-    // One line of content and one speaker button. The definition, the level
-    // badge and the second action all lived here in the first cut and turned
-    // a nice moment into another paragraph — they are on the word card, one
-    // tap away, where someone who actually wants them will look.
+    // One line of content and two actions. The definition, the level badge
+    // and everything else lived here in the first cut and turned a nice
+    // moment into another paragraph — they are on the word card, one tap
+    // away, where someone who actually wants them will look.
     return SqPanel(
       padding: const EdgeInsets.fromLTRB(17, 15, 15, 15),
-      onTap: () => onOpen(WordDetailScreen(word: w)),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SqEyebrow(tr('Күннің сөзі')),
-                const SizedBox(height: 5),
-                Text(w.en,
-                  style: TextStyle(
-                    fontSize: 24, fontWeight: FontWeight.w800,
-                    letterSpacing: -0.7, color: AppColors.text(d))),
-                Text(w.native(lang),
-                  style: const TextStyle(
-                    fontSize: 13.5, fontWeight: FontWeight.w700,
-                    color: AppColors.primary)),
-              ],
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SqEyebrow(tr('Күннің сөзі')),
+                    const SizedBox(height: 5),
+                    Text(e.en,
+                      style: TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.w800,
+                        letterSpacing: -0.7, color: AppColors.text(d))),
+                    Text(e.native(lang),
+                      style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              SqSquareButton(PhosphorIconsFill.speakerHigh,
+                size: 46,
+                fill: AppColors.inkBlock(d),
+                lip: AppColors.inkBlockLip(d),
+                iconColor: Colors.white,
+                onTap: () => Speech.instance.say(
+                  e.en.toLowerCase().startsWith('to ')
+                      ? e.en.substring(3) : e.en)),
+            ],
           ),
-          const SizedBox(width: 10),
-          SqSquareButton(PhosphorIconsFill.speakerHigh,
-            size: 46,
-            fill: AppColors.inkBlock(d),
-            lip: AppColors.inkBlockLip(d),
-            iconColor: Colors.white,
-            onTap: () => Speech.instance.say(
-              w.en.toLowerCase().startsWith('to ')
-                  ? w.en.substring(3) : w.en)),
+          const SizedBox(height: 13),
+          SqAction(
+            _saved ? tr('Сөздігіңде бар') : tr('Сөздікке қосу'),
+            icon: _saved
+                ? PhosphorIconsFill.checkCircle
+                : PhosphorIconsBold.plus,
+            tone: _saved ? SqTone.ghost : SqTone.primary,
+            height: 46,
+            busy: _busy,
+            onTap: _saved ? null : _add),
         ],
       ),
     );

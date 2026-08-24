@@ -20,6 +20,7 @@ import '../../core/constants/game_meta.dart';
 import '../../core/constants/build_info.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
+import '../../data/repos/account_repo.dart';
 import '../../data/repos/phone_auth_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
@@ -29,6 +30,7 @@ import '../auth/guest_gate.dart';
 import '../../data/repos/moderator_repo.dart';
 import '../moderator/moderator_screen.dart';
 import 'account_screen.dart';
+import 'legal_screen.dart';
 import 'profile_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -438,6 +440,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {/* the choice is already saved on this device */}
   }
 
+  /// Erasing the account for good (EN-45 / KK-10).
+  ///
+  /// Two gates, not one: a plain confirm, then typing the word. Everything
+  /// this removes — every saved word, the streak, the rating, the league
+  /// standing — is unrecoverable, and a single mis-tap on a red row in a
+  /// settings list is not consent to lose it.
+  Future<void> _deleteAccount() async {
+    final ok = await sqConfirm(context,
+      title: tr('Аккаунтты жою'),
+      message: tr('Барлық сөзің, XP-ің, рейтингің және сериялар біржола '
+          'өшеді. Мұны кері қайтару мүмкін емес.'),
+      confirm: tr('Жалғастыру'),
+      danger: true);
+    if (!ok || !mounted) return;
+
+    final typed = await _confirmWord();
+    if (typed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await PushService.instance.clearToken();
+      await ref.read(metaProvider.notifier).reset();
+      await AccountRepo().deleteAccount();
+      if (!mounted) return;
+      ref.read(showLoginProvider.notifier).state = true;
+      Navigator.of(context).popUntil((r) => r.isFirst);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        sqSnack(context, humanError(e), error: true);
+      }
+    }
+  }
+
+  /// The second gate: the learner types the word rather than tapping again.
+  Future<bool?> _confirmWord() {
+    final want = tr('ЖОЮ');
+    final field = TextEditingController();
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setInner) => AlertDialog(
+          title: Text(tr('Аккаунтты жою')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(trp('Растау үшін «{w}» деп жаз', {'w': want}),
+                style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: field,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (_) => setInner(() {}),
+                decoration: InputDecoration(hintText: want),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(tr('Болдырмау'))),
+            TextButton(
+              onPressed: field.text.trim().toUpperCase() == want
+                  ? () => Navigator.of(ctx).pop(true)
+                  : null,
+              child: Text(tr('Жою'),
+                style: const TextStyle(color: AppColors.red))),
+          ],
+        ),
+      ),
+    ).whenComplete(field.dispose);
+  }
+
   /// Only ever shown to a signed-in account — a guest has nothing to "log
   /// out" of, so that path is [signInToExistingAccount] instead, worded for
   /// what it actually does.
@@ -448,10 +526,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       confirm: tr('Шығу'));
     if (!ok) return;
     await PushService.instance.clearToken();
+
+    // The meta-game is stored per device under a single key with no account
+    // in it, so without this the next person to sign in on this phone
+    // inherits the last one's chest streak, cosmetics and story progress.
+    await ref.read(metaProvider.notifier).reset();
+
     // Signing out is a deliberate exit, so land on the sign-in screen rather
     // than silently opening a brand new guest session.
     ref.read(showLoginProvider.notifier).state = true;
     await ref.read(authRepoProvider).signOut();
+
+    // AuthGate is the app's `home`, i.e. the BOTTOM route. Swapping it for
+    // the sign-in screen leaves every pushed route sitting on top of it — so
+    // before this, tapping "Шығу" cleared the session and left the learner
+    // staring at the settings screen of the account they had just left, with
+    // the pushed stack still navigable. That is the whole of the "it says I
+    // logged out but I am still in" report (EN-47).
+    if (mounted) {
+      Navigator.of(context).popUntil((r) => r.isFirst);
+    }
   }
 
   @override
@@ -648,6 +742,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             chevron: true,
             onTap: _busy ? null : () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AccountScreen()))),
+          // EN-45 / KK-10. A guest has no account to erase — signing out of
+          // one is enough — so the row is only offered to a real account.
+          if (!(p?.isGuest ?? false))
+            SqTile(
+              leading: const SqTintBox(PhosphorIconsFill.trash,
+                tint: AppColors.red, size: 34),
+              title: tr('Аккаунтты жою'),
+              titleColor: AppColors.red,
+              chevron: true,
+              onTap: _busy ? null : _deleteAccount),
+        ]),
+        const SizedBox(height: 18),
+
+        // EN-46 / KK-10: both documents reachable at any time, in the one
+        // app language.
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 9),
+          child: SqEyebrow(tr('Құқықтық құжаттар'))),
+        SqGroup(children: [
+          SqTile(
+            leading: const SqTintBox(PhosphorIconsFill.fileText,
+              tint: AppColors.sky, size: 34),
+            title: tr('Пайдаланушы келісімі'),
+            chevron: true,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const LegalScreen(doc: LegalDoc.terms)))),
+          SqTile(
+            leading: const SqTintBox(PhosphorIconsFill.lockKey,
+              tint: AppColors.green, size: 34),
+            title: tr('Құпиялық саясаты'),
+            chevron: true,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const LegalScreen(doc: LegalDoc.privacy)))),
         ]),
 
         // Only a moderator ever sees this. amModeratorProvider reads the role

@@ -3,6 +3,8 @@
 // Every Riverpod provider in one place so screens have a single import and
 // the dependency graph stays easy to read.
 
+import 'dart:math' show Random;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
@@ -309,6 +311,21 @@ final recentWordsProvider = Provider<List<Word>>((ref) {
   return all.take(5).toList();
 });
 
+/// The word of the day (EN-10).
+///
+/// Drawn from the shared dictionary at the learner's level rather than from
+/// their own bank. It used to pick one of their saved words, which made the
+/// "add to my dictionary" the PRD asks for meaningless — the word was already
+/// there by construction. A day-seeded index keeps it the same word from
+/// morning to midnight without storing anything.
+final dailyWordProvider = Provider<DictEntry?>((ref) {
+  final pool = ref.watch(levelPoolProvider).valueOrNull ?? const <DictEntry>[];
+  if (pool.isEmpty) return null;
+  final now = DateTime.now();
+  return pool[Random(now.year * 10000 + now.month * 100 + now.day)
+      .nextInt(pool.length)];
+});
+
 // ── Daily progress / quests ────────────────────────────────
 final dailyProgressProvider = FutureProvider<DailyProgress>(
     (ref) => ref.watch(profileRepoProvider).today());
@@ -576,6 +593,15 @@ class MetaCtrl extends StateNotifier<MetaState> {
   Future<void> clearStoryTo(int node) async {
     if (node <= state.storyNode) return;
     await _commit(state.copyWith(storyNode: node));
+  }
+
+  /// Drops the whole meta-game back to a fresh install. Called on sign-out so
+  /// the next account does not inherit the previous person's chest streak,
+  /// cosmetics and story progress (EN-47).
+  Future<void> reset() async {
+    await MetaStore.instance.clear();
+    if (!mounted) return;
+    state = const MetaState();
   }
 }
 

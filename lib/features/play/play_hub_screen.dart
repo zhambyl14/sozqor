@@ -33,11 +33,18 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
   final Set<QKind> _kinds = {};
   bool _showKinds = false;
 
+  /// How long a classic round is (EN-31). Ten is the old fixed length and
+  /// stays the default; the rest let a learner pick a two-minute round on a
+  /// bus or a long one at a desk.
+  static const _counts = [5, 10, 20, 30, 50];
+  int _count = 10;
+
   Future<void> _start(PlayMode mode) async {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => PlaySessionScreen(
         mode: mode,
         kinds: _kinds.isEmpty ? null : _kinds.toList(),
+        count: mode == PlayMode.classic ? _count : null,
       ),
     ));
     if (mounted) refreshAll(ref);
@@ -236,7 +243,9 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          trp('10 сұрақ · {src} · 4 минут', {
+                          trp('{n} сұрақ · {src} · {min} минут', {
+                            'n': '$_count',
+                            'min': '${(_count * 0.4).ceil()}',
                             'src': words.isEmpty
                                 ? tr('базадан')
                                 : tr('өз сөздерің')
@@ -247,6 +256,39 @@ class _PlayHubScreenState extends ConsumerState<PlayHubScreen> {
                       ],
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 13),
+
+              // EN-31: the round length was fixed at ten. The chips sit on
+              // the dark card so the choice is made in the same glance as
+              // the decision to start, not behind a settings screen.
+              Row(
+                children: [
+                  for (final n in _counts) ...[
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => setState(() => _count = n),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          height: 36,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: n == _count
+                                ? AppColors.primary
+                                : AppColors.inkTrack,
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: SqNum('$n',
+                            size: 13,
+                            color: n == _count
+                                ? Colors.white : AppColors.onInk2),
+                        ),
+                      ),
+                    ),
+                    if (n != _counts.last) const SizedBox(width: 6),
+                  ],
                 ],
               ),
               const SizedBox(height: 15),

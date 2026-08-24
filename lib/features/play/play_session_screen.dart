@@ -57,6 +57,10 @@ class PlaySessionScreen extends ConsumerStatefulWidget {
   final String? topic;
   /// Shown in place of the mode name — used by word packs and the word path.
   final String? title;
+  /// How many questions a classic round asks (EN-31). Null keeps each mode's
+  /// own default; marathon and time attack ignore it, since they end on
+  /// lives and on the clock rather than on a count.
+  final int? count;
 
   const PlaySessionScreen({
     super.key,
@@ -66,6 +70,7 @@ class PlaySessionScreen extends ConsumerStatefulWidget {
     this.preset,
     this.topic,
     this.title,
+    this.count,
   });
 
   @override
@@ -230,7 +235,8 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
         PlayMode.marathon   => 25,
         PlayMode.timeAttack => 40,
         PlayMode.tournament => 12,
-        _                   => 10,
+        // A chosen length wins for the modes that end on a count.
+        _                   => widget.count ?? 10,
       },
       nativeLang: lang,
     );

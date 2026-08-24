@@ -38,6 +38,7 @@ import 'package:sozqor/features/play/play_hub_screen.dart';
 import 'package:sozqor/features/profile/account_screen.dart';
 import 'package:sozqor/features/profile/achievements_screen.dart';
 import 'package:sozqor/features/profile/friends_screen.dart';
+import 'package:sozqor/features/profile/legal_screen.dart';
 import 'package:sozqor/features/profile/profile_screen.dart';
 import 'package:sozqor/features/profile/report_screen.dart';
 import 'package:sozqor/features/profile/settings_screen.dart';
@@ -63,6 +64,8 @@ const _screens = <String, Widget>{
   'leaderboard': LeaderboardScreen(),
   'settings': SettingsScreen(),
   'account': AccountScreen(),
+  'legal terms': LegalScreen(doc: LegalDoc.terms),
+  'legal privacy': LegalScreen(doc: LegalDoc.privacy),
   'league': LeagueScreen(),
   'tournament': TournamentScreen(),
   'events': EventsScreen(),

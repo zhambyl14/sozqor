@@ -178,6 +178,20 @@ class MetaStore {
       // a device that cannot persist still gets a working session
     }
   }
+
+  /// Wipes the meta-game on sign-out.
+  ///
+  /// Everything in here is per-person — chest streak, freezes, lives, mission
+  /// claims, owned cosmetics, the worn frame, pack progress, story node — but
+  /// it is stored per-device under one key with no account in it. Signing out
+  /// and into a different account used to inherit all of it, which is a large
+  /// part of why logging out looked like it had not worked (EN-47).
+  Future<void> clear() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (_) {/* nothing to lose that was not already lost */}
+  }
 }
 
 // ── Mission path ──────────────────────────────────────────────────────────

@@ -99,6 +99,24 @@ class AccountRepo {
     } catch (_) {/* already changed server-side */}
   }
 
+  /// Erases the account and everything belonging to it (EN-45 / KK-10).
+  ///
+  /// The whole deletion happens inside `delete_my_account`, which takes no
+  /// argument and works on `auth.uid()`, so the client cannot aim it at
+  /// another account. Finished battles survive with the id detached: they
+  /// belong to the opponent's history and their rating too, and deleting them
+  /// would silently rewrite somebody else's record.
+  ///
+  /// The session is signed out afterwards because the user behind it no
+  /// longer exists; leaving it live would leave the app holding a token for a
+  /// deleted account until the next refresh failed.
+  Future<void> deleteAccount() async {
+    await supa.rpc('delete_my_account');
+    try {
+      await supa.auth.signOut();
+    } catch (_) {/* the account is already gone; the token is worthless */}
+  }
+
   static void _mustMatch(String a, String b, String message) {
     if (PhoneAuthRepo.normalize(a) != PhoneAuthRepo.normalize(b)) {
       throw Exception(message);

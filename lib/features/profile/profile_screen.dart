@@ -48,7 +48,7 @@ class ProfileScreen extends ConsumerWidget {
     final words = ref.watch(myWordsProvider).valueOrNull ?? const <Word>[];
     final unlocked =
         ref.watch(unlockedAchievementsProvider).valueOrNull ?? const <String>{};
-    final spendable = ref.watch(spendableXpProvider);
+    final coins = ref.watch(coinsProvider);
     final frameColor = ref.watch(myFrameColorProvider);
     final title = ref.watch(myTitleProvider);
     // The other three equip slots. They exist on the profile row and in the
@@ -253,7 +253,7 @@ class ProfileScreen extends ConsumerWidget {
             leading: const SqTintBox(PhosphorIconsFill.storefront, size: 38),
             title: tr('Дүкен'),
             subtitle: tr('Жиек, тақырып, мұздатқыш'),
-            trailing: SqBadge('$spendable XP',
+            trailing: SqBadge(trp('{n} тиын', {'n': '$coins'}),
               tint: AppColors.amber, numeric: true),
             onTap: () => open(const ShopScreen())),
           SqTile(

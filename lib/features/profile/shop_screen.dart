@@ -1,9 +1,9 @@
 // lib/features/profile/shop_screen.dart
 //
-// The XP shop.
+// The shop.
 //
 // XP had exactly one use in 3.0 — a level number that went up. That is a
-// scoreboard, not a reward. The shop gives the number somewhere to go: avatar
+// scoreboard, not a reward. The shop gives progress somewhere to go: avatar
 // frames, titles, avatars, plus the consumables that keep a streak alive.
 //
 // The catalogue comes from the server, not from a list compiled into the app,
@@ -17,10 +17,11 @@
 // kinds are a filter across the top and what is currently worn sits above
 // them: the two questions anybody opening a shop actually has.
 //
-// Buying spends against `xp_spent`, never against `xp` itself: leagues and
-// leaderboards rank on total XP, so letting a cosmetic eat it would quietly
-// cost the learner a place in a competition they did not know they were
-// spending from.
+// 5.0 buys with coins rather than XP (EN-42 / KK-6). Leagues and leaderboards
+// rank on total XP, so spending it meant a cosmetic quietly cost a place in a
+// competition the learner did not know they were spending from. `xp_spent`
+// was already a currency in XP's clothes; `coins` is the same idea said out
+// loud, and it has been accruing on every award since before this release.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -87,8 +88,10 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
   /// through the app's usual translator.
   String _reason(Object e) {
     final raw = e.toString();
-    if (raw.contains('not enough xp')) {
-      return tr('XP жетпей тұр — тағы бір раунд ойна');
+    // The RPC raised 'not enough xp' before coins existed; the new one says
+    // so in Kazakh through GUEST_LOCKED, which humanError already unwraps.
+    if (raw.contains('not enough xp') || raw.contains('Тиын жетпей')) {
+      return tr('Тиын жетпей тұр — тағы бір раунд ойна');
     }
     if (raw.contains('locked')) return tr('Бұл әлі ашылмаған');
     if (raw.contains('not owned')) return tr('Алдымен сатып ал');
@@ -98,7 +101,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
   Future<void> _buy(Cosmetic c) async {
     final ok = await sqConfirm(context,
       title: c.name,
-      message: trp('{p1} XP жұмсап аласың ба?', {'p1': '${c.price}'}),
+      message: trp('{p1} тиын жұмсап аласың ба?', {'p1': '${c.price}'}),
       confirm: tr('Сатып алу'),
       cancel: tr('Кейін'),
       danger: false);
@@ -116,7 +119,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
     if (mounted) sqSnack(context, trp('«{p1}» киілді', {'p1': c.name}));
   });
 
-  void _onTap(Cosmetic c, int spendable) {
+  void _onTap(Cosmetic c, int coins) {
     if (c.equipped) return;
     if (c.owned || c.isDefault) {
       _equip(c);
@@ -130,10 +133,10 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
       if (c.unlocked) _equip(c);
       return;
     }
-    if (spendable < c.price) {
+    if (coins < c.price) {
       sqSnack(context,
-        trp('{p1} XP жетпей тұр — тағы бір раунд ойна',
-            {'p1': '${c.price - spendable}'}),
+        trp('{p1} тиын жетпей тұр — тағы бір раунд ойна',
+            {'p1': '${c.price - coins}'}),
         error: true);
       return;
     }
@@ -145,7 +148,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
     final meta = ref.watch(metaProvider);
-    final spendable = ref.watch(spendableXpProvider);
+    final coins = ref.watch(coinsProvider);
     final async = ref.watch(shopCatalogueProvider);
 
     return SqPage(
@@ -161,7 +164,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
           onBack: () => Navigator.of(context).pop()),
         const SizedBox(height: 16),
 
-        _Balance(spendable: spendable, onEarn: () => goTab(ref, SqTab.play)),
+        _Balance(coins: coins, onEarn: () => goTab(ref, SqTab.play)),
         const SizedBox(height: 16),
 
         if (meta.freezes > 0 || meta.lives > 0) ...[
@@ -217,7 +220,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
                   onPick: (k) => setState(() => _kind = k)),
                 const SizedBox(height: 18),
                 for (final k in open)
-                  ..._section(items, k, cosmeticKindLabel(k), spendable),
+                  ..._section(items, k, cosmeticKindLabel(k), coins),
               ],
             );
           },
@@ -258,7 +261,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Text(tr('Сатып алу лига XP-ін азайтпайды.'),
+        Text(tr('Тиын әр ойыннан жиналады. XP-ің азаймайды.'),
           style: TextStyle(
             fontSize: 11, height: 1.5, fontWeight: FontWeight.w600,
             color: AppColors.text4(d))),
@@ -270,7 +273,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
     List<Cosmetic> all,
     CosmeticKind kind,
     String title,
-    int spendable,
+    int coins,
   ) {
     // The free default of each kind is the "take it off again" option, which
     // belongs with the rest of its group rather than looking like a product.
@@ -286,9 +289,9 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
         for (final c in items)
           _CosmeticRow(
             item: c,
-            affordable: spendable >= c.price,
+            affordable: coins >= c.price,
             busy: _busyId == c.id,
-            onTap: () => _onTap(c, spendable),
+            onTap: () => _onTap(c, coins),
           ),
       ]),
       const SizedBox(height: 18),
@@ -297,9 +300,9 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
 }
 
 class _Balance extends StatelessWidget {
-  final int spendable;
+  final int coins;
   final VoidCallback onEarn;
-  const _Balance({required this.spendable, required this.onEarn});
+  const _Balance({required this.coins, required this.onEarn});
 
   @override
   Widget build(BuildContext context) => SqInkCard(
@@ -312,7 +315,7 @@ class _Balance extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.amber,
             borderRadius: BorderRadius.circular(16)),
-          child: const Icon(PhosphorIconsFill.star,
+          child: const Icon(PhosphorIconsFill.coin,
             size: 23, color: AppColors.ink),
         ),
         const SizedBox(width: 14),
@@ -323,8 +326,7 @@ class _Balance extends StatelessWidget {
             children: [
               SqEyebrow(tr('Жұмсауға болады'), color: AppColors.onInk2),
               const SizedBox(height: 2),
-              SqCountUp(spendable,
-                size: 24, color: Colors.white, suffix: ' XP'),
+              SqCountUp(coins, size: 24, color: Colors.white),
             ],
           ),
         ),
@@ -334,7 +336,7 @@ class _Balance extends StatelessWidget {
           radius: 14,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           onTap: onEarn,
-          child: Text(tr('XP табу'),
+          child: Text(tr('Тиын табу'),
             style: const TextStyle(
               fontSize: 12.5, fontWeight: FontWeight.w800,
               color: Colors.white)),
@@ -413,7 +415,7 @@ class _CosmeticRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
-        SqNum('${item.price} XP',
+        SqNum(trp('{n} тиын', {'n': '${item.price}'}),
           size: 12,
           color: affordable ? AppColors.amberInk : AppColors.text4(d)),
         const SizedBox(height: 5),

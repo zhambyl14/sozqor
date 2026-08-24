@@ -608,13 +608,19 @@ class MetaCtrl extends StateNotifier<MetaState> {
 final metaProvider =
     StateNotifierProvider<MetaCtrl, MetaState>((_) => MetaCtrl());
 
-/// XP the learner may actually spend in the shop.
+/// Coins the learner may spend in the shop (EN-42 / KK-6).
 ///
-/// Read off the profile rather than local state: spending is tracked server
-/// side in `xp_spent`, so the balance survives a reinstall and cannot be
-/// edited by the device. `xp` itself is never reduced — leagues rank on it.
-final spendableXpProvider = Provider<int>((ref) =>
-    ref.watch(myProfileProvider).valueOrNull?.spendableXp ?? 0);
+/// XP is the number leagues and leaderboards rank on, so spending it meant a
+/// cosmetic cost you standing — the two things the app most wants people to
+/// do were in direct opposition. `xp_spent` was already a currency wearing
+/// XP's clothes; `coins` is the same idea said out loud, and it has been
+/// accruing on every award since before this release.
+///
+/// Read off the profile rather than local state: the balance is server-side,
+/// so it survives a reinstall and the device cannot edit it (profiles_guard
+/// reverts any client write to `coins`).
+final coinsProvider = Provider<int>((ref) =>
+    ref.watch(myProfileProvider).valueOrNull?.coins ?? 0);
 
 // ── Refresh helper ─────────────────────────────────────────
 /// Invalidates everything that changes after a round or a word edit.

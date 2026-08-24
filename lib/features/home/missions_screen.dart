@@ -1,21 +1,39 @@
-﻿// lib/features/home/missions_screen.dart
+// lib/features/home/missions_screen.dart
 //
-// The mission path — a season track that turns XP the learner is already
-// earning into a visible ladder of rewards.
+// The mission path, as a progression map (EN-9 / KK-1).
 //
-// Level is derived from lifetime XP (400 per step), so nothing here is a
-// second currency to farm: playing normally advances it. Free rewards unlock
-// as you pass them; the premium ones stay visible but locked, which is what
-// makes the free track feel like progress rather than a teaser.
+// The complaint the PRD makes about 4.0's version is that a learner cannot
+// tell what the mission IS, what to do about it, where they are, or what comes
+// next. It was a flat list of twelve reward rows with a level number derived
+// from lifetime XP — accurate, and unreadable as a journey.
+//
+// This is a path: nodes down the screen in a zig-zag, each in one of four
+// states you can tell apart at a glance, with the CURRENT one as the single
+// dark focus block carrying the action. A locked node states its condition
+// rather than showing a padlock and leaving the learner to guess. Milestones
+// are visibly larger, so the ladder has landmarks instead of twelve identical
+// rungs.
+//
+// Two dishonest things from 4.0 are gone. The countdown counted down to the
+// end of the calendar month, which is not a season boundary and not stored
+// anywhere — a deadline the app invented. And "Премиум жолды ашу" granted
+// premium for free, on this device, to anybody who pressed it: a paywall that
+// is not one is worse than either having one or not. Those rewards are
+// milestones now, earned at their level like everything else.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
+import '../../core/constants/game_meta.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../providers.dart';
 import '../../services/meta_store.dart';
+import '../play/play_session_screen.dart';
+
+/// What one node on the path is currently worth doing about.
+enum _NodeState { claimed, claimable, current, locked }
 
 class MissionsScreen extends ConsumerWidget {
   const MissionsScreen({super.key});
@@ -29,267 +47,376 @@ class MissionsScreen extends ConsumerWidget {
     final level = passLevelFor(xp);
     final claimed = meta.passClaimed;
 
-    final unclaimed = kPassRewards
+    final ready = kPassRewards
         .where((r) => r.level <= level && !claimed.contains(r.level))
-        .where((r) => !r.premium || meta.passPremium)
         .toList();
-    final lockedPremium = kPassRewards
-        .where((r) => r.premium && !meta.passPremium)
-        .length;
+    final done = kPassRewards.where((r) => claimed.contains(r.level)).length;
 
-    // No stored season-start date exists (checked meta_store.dart), so the
-    // countdown is simply days remaining until the end of this month.
-    final now = DateTime.now();
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-    final daysLeft = daysInMonth - now.day;
+    // The next node that is not finished — the one the whole screen is about.
+    final next = kPassRewards.firstWhere(
+      (r) => !claimed.contains(r.level),
+      orElse: () => kPassRewards.last);
 
     return SqPage(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
+      onRefresh: () async {
+        ref.invalidate(myProfileProvider);
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      },
       children: [
         SqHeader(
           title: tr('Миссия жолы'),
-          eyebrow: tr('1-маусым'),
+          eyebrow: tr('Прогресс'),
           onBack: () => Navigator.of(context).pop(),
-          actions: [SqBadge(trp('{n} күн', {'n': '$daysLeft'}),
-            tint: AppColors.red)],
+          // The old badge counted down to the end of the calendar month, which
+          // is not a season boundary and is not stored anywhere. How far
+          // along the path you are is both true and more useful.
+          actions: [
+            SqBadge('$done / ${kPassRewards.length}',
+              tint: AppColors.primary, numeric: true),
+          ],
         ),
         const SizedBox(height: 16),
 
-        SqInkCard(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 46, height: 46,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(16)),
-                    alignment: Alignment.center,
-                    child: SqNum('$level', size: 19, color: Colors.white),
-                  ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(trp('{n}-деңгей · {rank}',
-                            {'n': '$level', 'rank': _rankName(level)}),
-                          style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w800,
-                            color: Colors.white)),
-                        const SizedBox(height: 2),
-                        Text(trp('Келесі деңгейге {xp} XP',
-                            {'xp': '${passXpToNext(xp)}'}),
-                          style: const TextStyle(
-                            fontSize: 11.5, fontWeight: FontWeight.w600,
-                            color: AppColors.onInk2)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              SqTrack(passProgressFor(xp),
-                height: 9, background: AppColors.inkTrack),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(child: SqInkStat('${claimed.length}',
-                    tr('алынған сыйлық'))),
-                  const SizedBox(width: 8),
-                  Expanded(child: SqInkStat('$lockedPremium',
-                    tr('премиум құлыпта'), valueColor: AppColors.amber)),
-                ],
-              ),
-            ],
-          ),
+        // The current step, and what to do about it. One dark block, one
+        // button — the answer to "what now" before anything else on the page.
+        _CurrentStep(
+          reward: next,
+          level: level,
+          xp: xp,
+          claimable: ready.contains(next),
+          onClaim: () async {
+            await ref.read(metaProvider.notifier).claimPass(next);
+            if (next.xp > 0) {
+              await ref.read(profileRepoProvider)
+                  .addXp(next.xp, 'mission_${next.level}')
+                  .catchError((_) => 0);
+              ref.invalidate(myProfileProvider);
+            }
+            if (context.mounted) {
+              sqSnack(context, trp('«{p1}» алынды', {'p1': tr(next.title)}));
+            }
+          },
+          onPlay: () async {
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PlaySessionScreen(mode: PlayMode.classic)));
+            if (context.mounted) refreshAll(ref);
+          },
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 6),
 
-        if (unclaimed.isNotEmpty) ...[
+        if (ready.length > 1) ...[
+          const SizedBox(height: 10),
           SqPanel(
             fill: AppColors.soft(AppColors.green, d),
             border: AppColors.line(AppColors.green, d),
-            padding: const EdgeInsets.all(15),
+            padding: const EdgeInsets.all(14),
             child: Row(
               children: [
                 const SqTintBox(PhosphorIconsFill.gift,
-                  tint: AppColors.green, size: 38, solid: true),
-                const SizedBox(width: 12),
+                  tint: AppColors.green, size: 34, solid: true),
+                const SizedBox(width: 11),
                 Expanded(
                   child: Text(
-                    trp('{n} сыйлық алуға дайын',
-                      {'n': '${unclaimed.length}'}),
+                    trp('Тағы {n} сыйлық алуға дайын',
+                      {'n': '${ready.length - 1}'}),
                     style: TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w800,
+                      fontSize: 13, fontWeight: FontWeight.w800,
                       color: AppColors.onSoft(AppColors.green, d))),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
         ],
+        const SizedBox(height: 18),
 
-        for (final r in kPassRewards) ...[
-          _RewardRow(
-            reward: r,
-            level: level,
-            claimed: claimed.contains(r.level),
-            premiumUnlocked: meta.passPremium,
-          ),
-          const SizedBox(height: 10),
-        ],
-
-        const SizedBox(height: 6),
-        if (!meta.passPremium)
-          SqAction(tr('Премиум жолды ашу'),
-            tone: SqTone.amber,
-            icon: PhosphorIconsFill.crownSimple,
-            onTap: () async {
-              final ok = await sqConfirm(context,
-                title: tr('Премиум жол'),
-                message: tr('Премиум жол осы құрылғыда тегін ашылады.'),
-                confirm: tr('Ашу'),
-                cancel: tr('Кейін'),
-                danger: false);
-              if (!ok) return;
-              await ref.read(metaProvider.notifier).unlockPremium();
-            })
-        else
-          SqPanel(
-            padding: const EdgeInsets.all(15),
-            child: Row(
-              children: [
-                const SqTintBox(PhosphorIconsFill.crownSimple,
-                  tint: AppColors.amber, size: 38),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(tr('Премиум жол ашық'),
-                    style: TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w800,
-                      color: AppColors.text(d))),
-                ),
-                const Icon(PhosphorIconsFill.checkCircle,
-                  size: 20, color: AppColors.green),
-              ],
-            ),
+        SqSection(tr('Жол')),
+        // The path itself. Drawn top to bottom because that is the direction
+        // the page already scrolls — a horizontal map would mean two axes of
+        // movement for one journey.
+        for (var i = 0; i < kPassRewards.length; i++)
+          _PathNode(
+            reward: kPassRewards[i],
+            index: i,
+            last: i == kPassRewards.length - 1,
+            state: _stateOf(kPassRewards[i], level, claimed, next),
+            xpNeeded: (kPassRewards[i].level * 400 - xp).clamp(0, 1 << 30),
           ),
       ],
     );
   }
 
-  static String _rankName(int level) {
-    if (level >= 11) return tr('Аңыз');
-    if (level >= 9) return tr('Шебер');
-    if (level >= 7) return tr('Жауынгер');
-    if (level >= 4) return tr('Ізденуші');
-    if (level >= 2) return tr('Жаңашыл');
-    return tr('Бастауыш');
+  static _NodeState _stateOf(
+    PassReward r, int level, Set<int> claimed, PassReward next) {
+    if (claimed.contains(r.level)) return _NodeState.claimed;
+    if (r.level == next.level) return _NodeState.current;
+    if (r.level <= level) return _NodeState.claimable;
+    return _NodeState.locked;
   }
 }
 
-class _RewardRow extends ConsumerWidget {
-  final PassReward reward;
-  final int level;
-  final bool claimed, premiumUnlocked;
+/// Which nodes are landmarks. Every fourth, plus the last — a ladder with no
+/// landmarks is twelve identical rungs, and nothing to aim at between them.
+bool _isMilestone(PassReward r) =>
+    r.level % 4 == 0 || r.level == kPassRewards.last.level;
 
-  const _RewardRow({
+IconData _rewardIcon(PassReward r) {
+  if (r.grant == null) return PhosphorIconsFill.star;
+  if (r.grant!.startsWith('freeze')) return PhosphorIconsFill.snowflake;
+  if (r.grant == 'life') return PhosphorIconsFill.heart;
+  if (r.grant!.startsWith('frame')) return PhosphorIconsFill.circleHalf;
+  if (r.grant!.startsWith('theme')) return PhosphorIconsFill.moonStars;
+  return PhosphorIconsFill.gift;
+}
+
+// ── The current step ─────────────────────────────────────────
+
+class _CurrentStep extends StatelessWidget {
+  final PassReward reward;
+  final int level, xp;
+  final bool claimable;
+  final Future<void> Function() onClaim;
+  final Future<void> Function() onPlay;
+
+  const _CurrentStep({
     required this.reward,
     required this.level,
-    required this.claimed,
-    required this.premiumUnlocked,
+    required this.xp,
+    required this.claimable,
+    required this.onClaim,
+    required this.onPlay,
   });
 
-  IconData get _icon {
-    if (reward.grant == null) return PhosphorIconsFill.star;
-    if (reward.grant!.startsWith('freeze')) return PhosphorIconsFill.snowflake;
-    if (reward.grant == 'life') return PhosphorIconsFill.heart;
-    if (reward.grant == 'theme_night') return PhosphorIconsFill.moonStars;
-    if (reward.grant == 'frame_eagle') return PhosphorIconsFill.bird;
-    return PhosphorIconsFill.circleHalf;
+  @override
+  Widget build(BuildContext context) {
+    final target = reward.level * 400;
+    final prev = (reward.level - 1) * 400;
+    final into = ((xp - prev) / (target - prev)).clamp(0.0, 1.0);
+    final need = (target - xp).clamp(0, 1 << 30);
+
+    return SqRise(
+      child: SqInkCard(
+        padding: const EdgeInsets.all(20),
+        glow: claimable ? AppColors.green : AppColors.primary,
+        glowAt: Alignment.topRight,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SqEyebrow(
+              claimable ? tr('Алуға дайын') : tr('Қазіргі қадам'),
+              color: AppColors.onInk2),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: claimable ? AppColors.green : AppColors.primary,
+                    borderRadius: BorderRadius.circular(16)),
+                  child: Icon(_rewardIcon(reward),
+                    size: 24, color: Colors.white),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(tr(reward.title),
+                        style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3, color: Colors.white)),
+                      Text(trp('{n}-қадам', {'n': '${reward.level}'}),
+                        style: const TextStyle(
+                          fontSize: 11.5, fontWeight: FontWeight.w600,
+                          color: AppColors.onInk3)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 15),
+
+            // What it takes, as a number rather than a mood. "Where am I and
+            // how much further" is the whole question this screen exists for.
+            if (!claimable) ...[
+              SqTrack(into, height: 9, background: AppColors.inkTrack),
+              const SizedBox(height: 7),
+              Text(trp('{n} XP жинасаң ашылады', {'n': '$need'}),
+                style: const TextStyle(
+                  fontSize: 12.5, fontWeight: FontWeight.w600,
+                  color: AppColors.onInk2)),
+              const SizedBox(height: 14),
+              SqAction(tr('XP жинау'),
+                icon: PhosphorIconsFill.play,
+                onTap: onPlay),
+            ] else ...[
+              SqAction(tr('Сыйлықты алу'),
+                icon: PhosphorIconsFill.gift,
+                tone: SqTone.green,
+                onTap: onClaim),
+            ],
+          ],
+        ),
+      ),
+    );
   }
+}
+
+// ── One node on the path ─────────────────────────────────────
+
+class _PathNode extends ConsumerWidget {
+  final PassReward reward;
+  final int index;
+  final bool last;
+  final _NodeState state;
+  final int xpNeeded;
+
+  const _PathNode({
+    required this.reward,
+    required this.index,
+    required this.last,
+    required this.state,
+    required this.xpNeeded,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final d = isDark(context);
-    final reached = reward.level <= level;
-    final locked = reward.premium && !premiumUnlocked;
-    final canClaim = reached && !claimed && !locked;
-    final tint = reward.premium ? AppColors.amber : AppColors.primary;
-    final isCurrent = reward.level == level + 1;
+    final milestone = _isMilestone(reward);
+    final size = milestone ? 56.0 : 44.0;
 
-    return SqPanel(
-      radius: 18,
-      padding: const EdgeInsets.all(14),
-      fill: isCurrent ? AppColors.soft(AppColors.primary, d) : null,
-      border: isCurrent ? AppColors.primaryEdge : null,
-      onTap: canClaim
-          ? () async {
-              await ref.read(metaProvider.notifier).claimPass(reward);
-              if (reward.xp > 0) {
-                await ref.read(profileRepoProvider)
-                    .addXp(reward.xp, 'mission_path')
-                    .catchError((_) => 0);
-                ref.invalidate(myProfileProvider);
-              }
-              if (context.mounted) {
-                sqSnack(context, trp('«{name}» алынды',
-                  {'name': tr(reward.title)}));
-              }
-            }
-          : null,
-      child: Opacity(
-        opacity: reached || isCurrent ? 1 : 0.55,
-        child: Row(
-          children: [
-            Container(
-              width: 34, height: 34,
-              decoration: BoxDecoration(
-                color: reached ? AppColors.inkBlock(d) : AppColors.muted(d),
-                borderRadius: BorderRadius.circular(11)),
-              alignment: Alignment.center,
-              child: SqNum('${reward.level}',
-                size: 13,
-                color: reached ? Colors.white : AppColors.text3(d)),
+    final tint = switch (state) {
+      _NodeState.claimed   => AppColors.green,
+      _NodeState.claimable => AppColors.amber,
+      _NodeState.current   => AppColors.primary,
+      _NodeState.locked    => AppColors.text4(d),
+    };
+    final filled = state != _NodeState.locked;
+
+    // The zig-zag. Nodes alternate left and right of centre so the eye follows
+    // a line rather than reading a column of rows — the one visual difference
+    // between "a path" and "a list".
+    final left = index.isEven;
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Column(
+              children: [
+                if (!left) const SizedBox(height: 0),
+                Container(
+                  width: size, height: size,
+                  margin: EdgeInsets.only(
+                    left: left ? 0 : 18, right: left ? 18 : 0),
+                  decoration: BoxDecoration(
+                    color: filled ? tint : AppColors.muted(d),
+                    borderRadius: BorderRadius.circular(size * 0.34),
+                    border: Border.all(
+                      color: state == _NodeState.current
+                          ? AppColors.primaryDeep
+                          : Colors.transparent,
+                      width: 3),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    state == _NodeState.claimed
+                        ? PhosphorIconsFill.check
+                        : state == _NodeState.locked
+                            ? PhosphorIconsFill.lock
+                            : _rewardIcon(reward),
+                    size: milestone ? 26 : 20,
+                    color: filled ? Colors.white : AppColors.text3(d)),
+                ),
+                if (!last)
+                  Expanded(
+                    child: Container(
+                      width: 3,
+                      margin: EdgeInsets.only(
+                        left: left ? 0 : 18, right: left ? 18 : 0,
+                        top: 4, bottom: 4),
+                      color: state == _NodeState.claimed
+                          ? AppColors.green
+                          : AppColors.divider(d),
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(width: 11),
-            SqTintBox(_icon, tint: tint, size: 40),
-            const SizedBox(width: 12),
-            Expanded(
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: milestone ? 10 : 6, bottom: 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(tr(reward.title),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(tr(reward.title),
+                          style: TextStyle(
+                            fontSize: milestone ? 15 : 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: state == _NodeState.locked
+                                ? AppColors.text3(d)
+                                : AppColors.text(d))),
+                      ),
+                      if (milestone) ...[
+                        const SizedBox(width: 7),
+                        SqBadge(tr('Белес'), tint: AppColors.amber),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  // A padlock on its own says "no". A padlock with the price
+                  // next to it says "not yet, and here is how far".
+                  Text(
+                    switch (state) {
+                      _NodeState.claimed   => tr('Алынды'),
+                      _NodeState.claimable => tr('Алуға дайын'),
+                      _NodeState.current   => trp('{n} XP қалды',
+                          {'n': '$xpNeeded'}),
+                      _NodeState.locked    => trp('{n} XP жинағанда ашылады',
+                          {'n': '$xpNeeded'}),
+                    },
                     style: TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w800,
-                      color: AppColors.text(d))),
-                  const SizedBox(height: 1),
-                  Text(reward.premium ? tr('Премиум') : tr('Тегін'),
-                    style: TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w700,
-                      color: AppColors.onSoft(tint, d))),
+                      fontSize: 11.5, fontWeight: FontWeight.w600,
+                      color: state == _NodeState.claimable
+                          ? AppColors.amberInk
+                          : AppColors.text3(d))),
+
+                  if (state == _NodeState.claimable) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 34,
+                      child: SqAction(tr('Алу'),
+                        height: 34,
+                        tone: SqTone.green,
+                        onTap: () async {
+                          await ref.read(metaProvider.notifier)
+                              .claimPass(reward);
+                          if (reward.xp > 0) {
+                            await ref.read(profileRepoProvider)
+                                .addXp(reward.xp, 'mission_${reward.level}')
+                                .catchError((_) => 0);
+                            ref.invalidate(myProfileProvider);
+                          }
+                          if (context.mounted) {
+                            sqSnack(context, trp('«{p1}» алынды',
+                              {'p1': tr(reward.title)}));
+                          }
+                        }),
+                    ),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            if (claimed)
-              const Icon(PhosphorIconsFill.checkCircle,
-                size: 20, color: AppColors.green)
-            else if (canClaim)
-              SqBadge(tr('Алу'), tint: AppColors.green, solid: true)
-            else if (locked)
-              Icon(PhosphorIconsFill.lockSimple,
-                size: 17, color: AppColors.text4(d))
-            else
-              Icon(PhosphorIconsBold.minus,
-                size: 15, color: AppColors.text4(d)),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

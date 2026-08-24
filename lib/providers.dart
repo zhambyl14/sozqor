@@ -648,9 +648,6 @@ class MetaCtrl extends StateNotifier<MetaState> {
     await _commit(next);
   }
 
-  Future<void> unlockPremium() =>
-      _commit(state.copyWith(passPremium: true));
-
   /// Records a purchase. XP is not deducted on the server — the shop spends
   /// against a locally tracked budget so a cosmetic can never eat the XP that
   /// leagues and leaderboards are ranked on.

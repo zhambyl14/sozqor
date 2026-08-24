@@ -1,12 +1,22 @@
-﻿// lib/features/home/chest_screen.dart
+// lib/features/home/chest_screen.dart
 //
-// The daily chest.
+// The daily chest, as a fortune wheel (EN-8 / KK-1).
 //
-// One chest a day, three face-down cards, one pick. The choice is the point:
-// a reward you selected reads as luck, a reward handed to you reads as a
-// number going up. The prize grows with the chest streak and every seventh
-// day is a guaranteed big one, so the run itself becomes the reason to come
-// back.
+// 4.0 offered three face-down cards and called the pick "luck". It was not:
+// the payout was `base + cardIndex * 15`, so the third card was strictly the
+// best choice every non-golden day. Anybody who noticed stopped looking at the
+// other two, and anybody who did not was picking between three identical
+// things while being told it was a decision.
+//
+// The wheel removes the false choice and puts a real range in its place. Most
+// days pay something ordinary; occasionally one does not. The streak lifts the
+// odds rather than the flat amount, so the run is worth keeping for a reason
+// the learner can feel rather than one they have to be told.
+//
+// The reward table and the spin live in reward_wheel.dart; this screen is the
+// ceremony around them.
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +27,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import 'reward_wheel.dart';
 
 class ChestScreen extends ConsumerStatefulWidget {
   const ChestScreen({super.key});
@@ -26,36 +37,58 @@ class ChestScreen extends ConsumerStatefulWidget {
 }
 
 class _ChestScreenState extends ConsumerState<ChestScreen> {
-  int? _picked;
+  /// Chosen before the wheel starts turning, never read off where it stopped —
+  /// otherwise the prize would depend on the frame rate and a dropped frame
+  /// would be a different reward.
+  int? _target;
+  WheelSlice? _won;
   bool _busy = false;
-  bool _opened = false;
-  int _reward = 0;
+  bool _settled = false;
 
-  // Labels stay Kazakh here — they are the translation key, and the card is
-  // drawn with tr() further down.
-  static const _cards = [
-    (label: 'XP сыйлығы', icon: PhosphorIconsFill.star, tint: AppColors.amber),
-    (label: 'Мұздатқыш', icon: PhosphorIconsFill.snowflake, tint: AppColors.sky),
-    (label: 'Құпия', icon: PhosphorIconsFill.question, tint: AppColors.primary),
-  ];
+  Future<void> _spin() async {
+    if (_busy || _target != null) return;
+    final meta = ref.read(metaProvider);
+    if (!meta.chestReady) return;
 
-  Future<void> _open() async {
-    final index = _picked;
-    if (index == null || _busy) return;
     setState(() => _busy = true);
     HapticFeedback.mediumImpact();
+
+    final slice = pickSlice(math.Random(), streak: meta.nextChestStreak);
+    setState(() {
+      _won = slice;
+      _target = kWheel.indexOf(slice);
+    });
+  }
+
+  /// Runs once the needle has stopped. Everything is banked here rather than
+  /// at spin time so the numbers on the profile move at the same moment the
+  /// learner sees what they won.
+  Future<void> _settle() async {
+    final slice = _won;
+    if (slice == null || _settled) return;
+    _settled = true;
+
     try {
-      final xp = await ref.read(metaProvider.notifier)
-          .openChest(cardIndex: index);
+      final banked = await ref.read(metaProvider.notifier).bankChest(
+        freezes: slice.freezes, lives: slice.lives);
+      // Already opened today — another device got there first. Nothing is
+      // awarded twice.
+      if (!banked) {
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+
+      // XP and coins are server-side: add_xp already grants a tenth of the XP
+      // in coins, so a slice that pays both asks for the XP that produces the
+      // coins it promises rather than trying to write coins from the device,
+      // which profiles_guard would revert anyway.
+      final xp = slice.xp + slice.coins * 10;
       if (xp > 0) {
-        // The chest pays in real XP so it feeds the league like anything else.
         await ref.read(profileRepoProvider)
             .addXp(xp, 'daily_chest')
             .catchError((_) => 0);
         ref.invalidate(myProfileProvider);
       }
-      if (!mounted) return;
-      setState(() { _opened = true; _reward = xp; });
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     } finally {
@@ -66,264 +99,146 @@ class _ChestScreenState extends ConsumerState<ChestScreen> {
   @override
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
+    final d = isDark(context);
     final meta = ref.watch(metaProvider);
     final ready = meta.chestReady;
-    final day = ready ? meta.nextChestStreak : meta.chestStreak;
-    final toGolden = (7 - (day % 7)) % 7;
+    final streak = meta.chestStreak;
+    final won = _won;
+    final revealed = won != null && _settled;
 
-    return Scaffold(
-      backgroundColor: AppColors.ink,
-      body: SafeArea(
-        child: SqFill(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-          children: [
-              Row(
-                children: [
-                  SqSquareButton(PhosphorIconsBold.x,
-                    size: 36, onInk: true,
-                    onTap: () => Navigator.of(context).pop()),
-                  Expanded(
-                    child: Center(
-                      child: SqEyebrow(
-                        trp('{n}-күнгі сыйлық', {'n': '$day'}),
-                        color: AppColors.onInk2, size: 10.5)),
-                  ),
-                  const SizedBox(width: 36),
-                ],
-              ),
-              const Spacer(flex: 2),
+    return SqPage(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
+      children: [
+        SqHeader(
+          title: tr('Сыйлық сандығы'),
+          eyebrow: tr('Күнделікті'),
+          onBack: () => Navigator.of(context).pop()),
+        const SizedBox(height: 10),
 
-              _ChestArt(open: _opened || !ready),
-              const SizedBox(height: 22),
+        if (streak > 0)
+          Center(
+            child: SqChip(
+              trp('{n} күндік сандық сериясы', {'n': '$streak'}),
+              icon: PhosphorIconsFill.fire,
+              tint: AppColors.amber,
+              radius: 999,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
+          ),
+        const SizedBox(height: 14),
 
-              if (_opened) ...[
-                SqRise(
-                  child: Column(
-                    children: [
-                      Text(tr('Сандық ашылды!'),
-                        style: const TextStyle(
-                          fontSize: 24, fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5, color: Colors.white)),
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: AppColors.amber.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.amber.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(_cards[_picked ?? 0].icon,
-                              size: 22, color: AppColors.amber),
-                            const SizedBox(width: 10),
-                            SqCountUp(_reward,
-                              size: 24, color: Colors.white, suffix: ' XP'),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        _picked == 1
-                            ? tr('Серия мұздатқышы да қосылды')
-                            : _picked == 2
-                                ? tr('Қосымша жан да қосылды')
-                                : tr('Серияңды жалғастыр — ертең тағы келеді'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 12.5, fontWeight: FontWeight.w600,
-                          color: AppColors.onInk2)),
-                    ],
-                  ),
-                ),
-              ] else if (!ready) ...[
+        Center(
+          child: RewardWheel(target: _target, onSettled: _settle),
+        ),
+        const SizedBox(height: 18),
+
+        if (revealed)
+          _Prize(slice: won)
+        else if (!ready)
+          SqPanel(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                Icon(PhosphorIconsFill.clock,
+                  size: 26, color: AppColors.text3(d)),
+                const SizedBox(height: 10),
                 Text(tr('Бүгінгі сандық ашылған'),
-                  style: const TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5, color: Colors.white)),
-                const SizedBox(height: 8),
-                Text(tr('Ертең жаңа сандық күтіп тұрады'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 12.5, fontWeight: FontWeight.w600,
-                    color: AppColors.onInk2)),
-              ] else ...[
-                Text(tr('Бір картаны таңда'),
-                  style: const TextStyle(
-                    fontSize: 24, fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5, color: Colors.white)),
-                const SizedBox(height: 6),
-                Text(
-                  tr('Серияң ұзарған сайын сыйлық та жақсарады'),
+                  style: TextStyle(
+                    fontSize: 14.5, fontWeight: FontWeight.w800,
+                    color: AppColors.text(d))),
+                const SizedBox(height: 4),
+                Text(tr('Ертең тағы бір айналдырасың'),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5, fontWeight: FontWeight.w600,
-                    color: AppColors.onInk2)),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    for (var i = 0; i < _cards.length; i++) ...[
-                      Expanded(
-                        child: _PickCard(
-                          label: tr(_cards[i].label),
-                          icon: _cards[i].icon,
-                          tint: _cards[i].tint,
-                          selected: _picked == i,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _picked = i);
-                          },
-                        ),
-                      ),
-                      if (i != _cards.length - 1) const SizedBox(width: 11),
-                    ],
-                  ],
-                ),
+                    color: AppColors.text3(d))),
               ],
+            ),
+          )
+        else
+          SqAction(tr('Айналдыру'),
+            icon: PhosphorIconsFill.gift,
+            height: 56,
+            busy: _busy && !revealed,
+            onTap: _busy ? null : _spin),
 
-              const Spacer(flex: 3),
+        const SizedBox(height: 18),
 
-              Container(
-                padding: const EdgeInsets.all(15),
+        // What is actually on the wheel. A prize table nobody can read is a
+        // prize table nobody trusts, and "what could I have won" is the first
+        // question a wheel provokes.
+        SqSection(tr('Сандықта не бар')),
+        SqGroup(children: [
+          for (final tier in RewardTier.values)
+            SqTile(
+              leading: SqTintBox(
+                switch (tier) {
+                  RewardTier.common => PhosphorIconsFill.star,
+                  RewardTier.rare   => PhosphorIconsFill.snowflake,
+                  RewardTier.epic   => PhosphorIconsFill.sparkle,
+                  RewardTier.legend => PhosphorIconsFill.crown,
+                },
+                tint: tier.colour, size: 34),
+              title: tier.label,
+              subtitle: kWheel
+                  .where((s) => s.tier == tier)
+                  .map((s) => s.label)
+                  .join(' · '),
+            ),
+        ]),
+      ],
+    );
+  }
+}
+
+/// The reveal. Sized and coloured by rarity, because a legendary prize shown
+/// exactly like fifteen coins is not a legendary prize.
+class _Prize extends StatelessWidget {
+  final WheelSlice slice;
+  const _Prize({required this.slice});
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = slice.tier.colour;
+    final big = slice.tier == RewardTier.epic ||
+        slice.tier == RewardTier.legend;
+
+    return SqRise(
+      child: SqInkCard(
+        radius: 24,
+        padding: EdgeInsets.symmetric(vertical: big ? 26 : 20, horizontal: 20),
+        glow: tint,
+        glowAt: Alignment.topRight,
+        child: Column(
+          children: [
+            SqFloat(
+              child: Container(
+                width: big ? 72 : 60, height: big ? 72 : 60,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(PhosphorIconsFill.fire,
-                      size: 20, color: AppColors.amber),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: Text(
-                        toGolden == 0
-                            ? tr('Бүгін алтын сандық — ең үлкен сыйлық осында.')
-                            : trp(
-                                '{n} күннен кейін алтын сандық ашылады: '
-                                '+200 XP бонус.',
-                                {'n': '$toGolden'}),
-                        style: const TextStyle(
-                          fontSize: 12, height: 1.45, fontWeight: FontWeight.w600,
-                          color: AppColors.onInkSoft)),
-                    ),
-                  ],
-                ),
+                  color: tint, borderRadius: BorderRadius.circular(22)),
+                child: Icon(slice.icon,
+                  size: big ? 36 : 30, color: Colors.white),
               ),
-              const SizedBox(height: 14),
-
-              if (_opened || !ready)
-                SqAction(tr('Басты бетке'),
-                  tone: SqTone.amber,
-                  height: 56,
-                  icon: PhosphorIconsBold.house,
-                  onTap: () => Navigator.of(context).pop())
-              else
-                SqAction(tr('Ашу'),
-                  tone: SqTone.amber,
-                  height: 56,
-                  busy: _busy,
-                  icon: PhosphorIconsFill.handTap,
-                  onTap: _picked == null ? null : _open),
+            ),
+            const SizedBox(height: 14),
+            SqChip(slice.tier.label,
+              tint: tint,
+              radius: 999,
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5)),
+            const SizedBox(height: 10),
+            Text(slice.label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: big ? 24 : 20, fontWeight: FontWeight.w800,
+                letterSpacing: -0.4, color: Colors.white)),
+            const SizedBox(height: 4),
+            Text(tr('Есепшотыңа қосылды'),
+              style: const TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w600,
+                color: AppColors.onInk2)),
           ],
         ),
       ),
     );
   }
-}
-
-class _ChestArt extends StatelessWidget {
-  final bool open;
-  const _ChestArt({required this.open});
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 150, height: 150,
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        SqPulse(
-          child: Container(
-            width: 150, height: 150,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.amber.withValues(alpha: 0.18)),
-          ),
-        ),
-        SqFloat(
-          distance: 7,
-          child: Container(
-            width: 110, height: 110,
-            decoration: BoxDecoration(
-              color: open ? AppColors.green : AppColors.amber,
-              borderRadius: BorderRadius.circular(36),
-              boxShadow: [
-                BoxShadow(
-                  color: open ? AppColors.greenDeep : AppColors.amberDeep,
-                  offset: const Offset(0, 6), blurRadius: 0),
-                BoxShadow(
-                  color: (open ? AppColors.green : AppColors.amber)
-                      .withValues(alpha: 0.55),
-                  blurRadius: 40, offset: const Offset(0, 20)),
-              ],
-            ),
-            child: Icon(
-              open ? PhosphorIconsFill.checkCircle : PhosphorIconsFill.gift,
-              size: 56, color: Colors.white),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _PickCard extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color tint;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _PickCard({
-    required this.label, required this.icon, required this.tint,
-    required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: selected ? 0.14 : 0.06),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: selected
-              ? tint
-              : Colors.white.withValues(alpha: 0.12),
-          width: selected ? 2 : 1),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48, height: 48,
-            decoration: BoxDecoration(
-              color: tint.withValues(alpha: 0.20),
-              borderRadius: BorderRadius.circular(16)),
-            child: Icon(icon, size: 24, color: tint),
-          ),
-          const SizedBox(height: 11),
-          Text(label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
-        ],
-      ),
-    ),
-  );
 }

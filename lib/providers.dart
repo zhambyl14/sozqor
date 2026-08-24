@@ -608,20 +608,26 @@ class MetaCtrl extends StateNotifier<MetaState> {
     await MetaStore.instance.save(next);
   }
 
-  /// Opens today's chest and returns the XP it was worth. The reward grows
-  /// with the chest streak and lands on a round number every seventh day.
-  Future<int> openChest({required int cardIndex}) async {
-    if (!state.chestReady) return 0;
-    final streak = state.nextChestStreak;
-    final base = 40 + streak * 10;
-    final bonus = streak % 7 == 0 ? 200 : cardIndex * 15;
+  /// Marks today's chest opened and banks whatever the wheel landed on
+  /// (EN-8 / KK-1).
+  ///
+  /// The old version took a card index and paid `base + cardIndex * 15`, which
+  /// made card three strictly the best pick every non-golden day — a choice
+  /// that was not one. The wheel decides instead, and this only records the
+  /// consumables, since XP and coins are awarded server-side where they cannot
+  /// be edited by the device.
+  ///
+  /// Returns false when the chest was already opened today, so a second tap
+  /// cannot bank a second prize.
+  Future<bool> bankChest({int freezes = 0, int lives = 0}) async {
+    if (!state.chestReady) return false;
     await _commit(state.copyWith(
       chestDay: MetaState.today(),
-      chestStreak: streak,
-      freezes: cardIndex == 1 ? state.freezes + 1 : state.freezes,
-      lives: cardIndex == 2 ? state.lives + 1 : state.lives,
+      chestStreak: state.nextChestStreak,
+      freezes: state.freezes + freezes,
+      lives: state.lives + lives,
     ));
-    return base + bonus;
+    return true;
   }
 
   Future<void> claimPass(PassReward r) async {

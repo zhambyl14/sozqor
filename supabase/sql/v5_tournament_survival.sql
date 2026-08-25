@@ -196,6 +196,13 @@ $$;
 -- ── The board ──────────────────────────────────────────────
 -- Ranked on the deepest wave first. Score alone would reward playing all day
 -- over surviving, which is the opposite of what this mode is about.
+-- The old tournament_board returned `setof board_row`; this one returns its
+-- own row type, and Postgres refuses to `create or replace` across a changed
+-- return type -- which is why this file failed the first time it was run.
+-- The SQL editor runs the file in one transaction, so that single error rolled
+-- back the ALTERs at the top too.
+drop function if exists public.tournament_board(bigint, integer);
+
 create or replace function public.tournament_board(
   p_tournament bigint, p_limit integer default 50)
 returns table (

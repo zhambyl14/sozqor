@@ -124,6 +124,12 @@ $$;
 -- ── The standings ──────────────────────────────────────────
 -- Ranked by rating, with the band's own name and range carried on every row
 -- so the client needs one request to draw the whole screen.
+-- The old my_league() returned a narrower row (no elo, no band name), and
+-- Postgres refuses to `create or replace` a function whose return type has
+-- changed -- which is exactly why this file failed the first time it was run.
+-- Dropping it first is safe: nothing else in the schema calls it.
+drop function if exists public.my_league();
+
 create or replace function public.my_league()
 returns table (
   league_id    bigint,

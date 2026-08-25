@@ -2,36 +2,60 @@
 // Keeps LLM API keys server-side and grows the shared dictionary
 // so repeated lookups never cost a request.
 //
-// Tasks: translate | enrich | suggest | chat | explain | raw
+// Tasks: translate | enrich | suggest | chat | explain | health | raw
 //
-// A translate request never dead-ends on a quota error. The order is
-// FreeRouter (free, and the most accurate of them on the probe below), then
-// OpenAI, then Gemini, then the free OpenRouter models, and only if every one
-// of them is spent do three keyless translation services get their turn.
+// ── Why the provider order is what it is ───────────────────
 //
-// But "always answers" is not the goal on its own, and used to be pursued at
-// the cost of being right: two of those keyless services return Kazakh words
-// TRANSLITERATED, and "шамшырақ" reached learners as "shamshyraq". Every
-// candidate now passes a gate — script, identity, transliteration, length, and
-// agreement between two models — before it is shown or written to the shared
-// dictionary. A word that fails is refused outright with "Аударма табылмады",
-// because one wrong entry in a dictionary everybody shares is worse than a
-// gap in it.
+// It was measured, not reasoned about. `ai-probe` asks every configured model
+// the same four Kazakh words and reports what each answered:
 //
-// Every error message is written in the interface language sent as `lang`
-// ("kk" or "ru"). 5.0 collapsed the app's two language settings into one, so
-// `study_lang` now always mirrors `lang`; the parameter is still read for
-// older cached clients that send it.
+//   word        gemini-2.5-flash    gemini-3.6-flash   freerouter   openrouter
+//   шаңырақ     yurt crown ✓        yurt crown ✓       502 / empty  "" / 404
+//   шамшырақ    lighthouse ✓        lighthouse ✓       502 / empty  "..." / 404
+//   жалаңаш     naked ✓             naked ✓            502 / empty  "" / 404
+//   мұғалім     teacher ✓           teacher ✓          502 / empty  teacher ✓
 //
-// Function secrets — ANY ONE of these makes the AI work; with none of them the
-// app falls back to the keyless translators and says so in `note`:
-//   FREEROUTER_API_KEY  (free; tried first — never commit it, this repo is public)
+// and every OpenAI model, on every word:
+//   429 "You exceeded your current quota".
+//
+// So Gemini is not one option among several — it is the only provider on this
+// project that answers Kazakh at all. The previous order (FreeRouter, then
+// OpenAI, then Gemini) spent 3-20 seconds on a gateway returning a 502 HTML
+// page and another request on a spent OpenAI key BEFORE reaching the one
+// provider that works. That, not the model, is why a lookup took 12-22
+// seconds. Gemini first cuts the same lookup to roughly two.
+//
+// The others are kept as fallbacks because a key can be topped up without
+// anybody redeploying this file, and because Gemini's free tier answers 429
+// under load.
+//
+// ── Why two models answer every new word ───────────────────
+//
+// A translate result is written into the dictionary everybody shares, so a
+// wrong answer is not one learner's problem. Two independent models are asked
+// AT THE SAME TIME — not one after the other, which is what made the old
+// second-opinion cost a whole extra round trip — and the answer is published
+// only if they agree. Self-reported confidence is never consulted: on the
+// probe that started this, two models answered "шамшырақ" with "beacon" and
+// "sunflower" and both reported 0.95.
+//
+// Every candidate also passes a structural gate — script, identity,
+// transliteration in BOTH directions, length — before it is shown or stored.
+// The named defect: "шаңырақ" reached a learner as "shangri-la".
+//
+// ── Function secrets ───────────────────────────────────────
+//   GEMINI_API_KEY      the one that matters (never commit it)
 //   OPENAI_API_KEY      (+ optional OPENAI_MODEL, default gpt-4o-mini)
 //   OPENROUTER_API_KEY
-//   GEMINI_API_KEY
+//   FREEROUTER_API_KEY
+//   SUPABASE_SERVICE_ROLE_KEY   injected by Supabase; required, see below
+//
+// `dict_upsert` is revoked from `authenticated` (v5_translation_review.sql),
+// so writing to the dictionary under the caller's own token now fails. Every
+// write here goes through a service-role client instead.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -44,40 +68,40 @@ const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-
-// FreeRouter — an OpenAI-compatible gateway over several models at no cost.
-// Set FREEROUTER_API_KEY in the function's secrets; never commit the key, the
-// repository is public.
 const FREEROUTER_KEY = Deno.env.get("FREEROUTER_API_KEY") ?? "";
 const FREEROUTER_URL = "https://freerouter.eu.cc/v1/chat/completions";
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-// Probed against "шамшырақ" (a beacon / lamp), the word this release exists to
-// stop mistranslating: glm-5.2 answered "beacon", kiro-auto answered
-// "sunflower". Both reported 0.95 confidence. That is the whole reason
-// self-reported confidence is not one of the gate's checks below and
-// cross-model agreement is — a model is not able to tell you when it is wrong.
-const FREEROUTER_PRIMARY = "glm-5.2";
-const FREEROUTER_SECOND = "kiro-auto";
-
-// OpenRouter retired the `:free` tier on every model this list used to name —
-// each one now 404s with "unavailable for free". These are priced at zero by
-// /api/v1/models today. They are tried AFTER Gemini because a free model that
-// answers confidently but wrongly is worse than none here: a translate result
-// is written into the shared dictionary, so one bad answer becomes everyone's
-// answer. Probed against "жалаңаш" these returned "newcomer", "silly" and
-// "yellowish" where Gemini returned "naked".
-const FREE_MODELS = [
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "openai/gpt-oss-20b:free",
-  "nvidia/nemotron-3-nano-30b-a3b:free",
-  "z-ai/glm-5.2:free",
-  "google/gemma-4-31b-it:free",
+// 2.5-flash first: on the probe it was both the most accurate and the fastest
+// (1.3-3.3s against 3.1-10.9s for 3.6-flash). 3.6-flash is the immediate
+// fallback because the free tier answers 429 under load, and flash-latest
+// last because it is the one that returns 503 "high demand".
+const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-3.6-flash",
+  "gemini-flash-latest",
 ];
 
-// gemini-2.0-flash is retired (404, "use models/gemini-3.6-flash") and
-// 2.5-flash spends its whole output allowance on hidden reasoning, coming back
-// finishReason MAX_TOKENS with no text at all. Both of these answer normally.
-const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-flash-latest"];
+// Gemini spends output tokens on hidden reasoning before it writes anything,
+// so a budget sized for the visible answer comes back finishReason
+// MAX_TOKENS with an empty candidate. These floors are what the probe needed.
+const GEMINI_MIN_TOKENS = 2048;
+
+const FREEROUTER_MODELS = ["glm-5.2", "kiro-auto"];
+
+// Priced at zero on /api/v1/models today. Half of them 404 with "unavailable
+// for free" and the rest 429, so they are a last resort, not a tier.
+const FREE_MODELS = [
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "z-ai/glm-5.2:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+];
+
+// A learner is waiting behind every one of these. 45 seconds was long enough
+// for five sequential providers to add up to three minutes.
+const LLM_TIMEOUT = 9_000;
+const FREE_TIMEOUT = 4_000;
 
 const RATE_MSG = "AI лимиті бітті — қазір қарапайым аудармамен жұмыс істейміз.";
 const NO_KEY_MSG = "AI кілттері бапталмаған";
@@ -109,26 +133,17 @@ const say = (key: keyof typeof MSG, lang: Lang) => MSG[key][lang];
 /// Full language name, for prompts that must answer in the learner's language.
 const LANG_NAME: Record<Lang, string> = { kk: "Kazakh", ru: "Russian" };
 
-/// `lang` (interface language, from AppLang.current) and `study_lang`
-/// (the learner's "Оқу тілі" — which language new words translate to) are
-/// two independent settings on the client and must stay independent here
-/// too: every error message in this function is UI chrome and always uses
-/// `lang`, while a `study_lang` field is used ONLY by the two tasks whose
-/// whole output is study content the learner reads to learn from — explain's
-/// explanation text and chat's "the learner speaks X" framing — because a
-/// learner reading the app in Russian while training Kazakh vocabulary (or
-/// the other way round) must still get that content in Kazakh, not Russian.
-/// Falls back to `lang` so an older cached client that never sends
-/// `study_lang` keeps working exactly as before.
+/// `lang` (interface language) and `study_lang` (which language new words
+/// translate to) are two independent client settings and stay independent
+/// here: every error message in this function is UI chrome and always uses
+/// `lang`, while `study_lang` is used ONLY by the two tasks whose whole
+/// output is study content — explain's text and chat's framing.
 const studyLang = (raw: unknown, fallback: Lang): Lang =>
   clean(raw) === "ru" ? "ru" : clean(raw) === "kk" ? "kk" : fallback;
 
 /// The chat scenarios are Kazakh labels the client also uses as lookup keys
 /// for its own offline scripted tutor, so they cannot simply be translated in
-/// place. Sent to an English-only model as-is ("Scene: \"Дәрігерде\"") they
-/// ground nothing — the model has no idea what that word means and answers
-/// with something plausible but unrelated to the scene, which is exactly the
-/// "ignores what I said, talks about something else" bug this maps fixes.
+/// place. Sent to an English-only model as-is they ground nothing.
 const SCENE_EN: Record<string, string> = {
   "Кофеханада": "a coffee shop — you are the barista taking the customer's order",
   "Әуежайда": "an airport check-in counter — you are the airline staff member",
@@ -141,57 +156,23 @@ const sceneEn = (kk: string) => SCENE_EN[kk] ?? "a friendly everyday situation";
 
 // ── LLM transports ─────────────────────────────────────────
 
-/// OpenAI, when a key is configured. Tried before everything else: it is the
-/// only one of the three that is not on a free quota, so it answers instead of
-/// spending six requests discovering that the free models are spent.
-async function callOpenAI(
-  prompt: string,
-  temperature: number,
-  maxTokens: number,
-) {
-  if (!OPENAI_KEY) throw new Error(NO_KEY_MSG);
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature,
-      max_completion_tokens: maxTokens,
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
-  if (!res.ok) {
-    // The status alone cannot tell "no credit left" from "too fast"; both are
-    // 429. Carry a slice of the body so the cause is visible in `note`.
-    const detail = (await res.text().catch(() => "")).slice(0, 300);
-    throw new Error(
-      `${res.status === 429 ? "429" : "OpenAI " + res.status} ${OPENAI_MODEL} ${detail}`,
-    );
-  }
-  const json = await res.json();
-  const text = json?.choices?.[0]?.message?.content ?? "";
-  if (!text.trim()) throw new Error(`OpenAI empty ${OPENAI_MODEL}`);
-  return text as string;
-}
-
-/// One OpenRouter model. Throws with "429" in the message when throttled, so
-/// the caller can move on to the next model instead of giving up.
-async function callOpenRouter(
+/// Everything except Gemini speaks the OpenAI chat-completions shape, so one
+/// function covers OpenAI, OpenRouter and FreeRouter.
+async function chatCompletions(
+  url: string,
+  key: string,
   model: string,
   prompt: string,
   temperature: number,
   maxTokens: number,
+  label: string,
 ) {
-  if (!OPENROUTER_KEY) throw new Error(NO_KEY_MSG);
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  if (!key) throw new Error(NO_KEY_MSG);
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENROUTER_KEY}`,
+      Authorization: `Bearer ${key}`,
       "X-Title": "SozQor",
     },
     body: JSON.stringify({
@@ -200,16 +181,34 @@ async function callOpenRouter(
       temperature,
       max_tokens: maxTokens,
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(LLM_TIMEOUT),
   });
-  if (res.status === 429) throw new Error(`429 ${model}`);
-  if (!res.ok) throw new Error(`OpenRouter ${res.status} ${model}`);
+  if (!res.ok) {
+    // The status alone cannot tell "no credit left" from "too fast"; both are
+    // 429. Carry a slice of the body so the cause is visible in `note`.
+    const detail = (await res.text().catch(() => "")).slice(0, 200);
+    throw new Error(`${res.status === 429 ? "429" : res.status} ${label}/${model} ${detail}`);
+  }
   const json = await res.json();
-  if (json.error) throw new Error(`OpenRouter: ${JSON.stringify(json.error)}`);
   const text = json?.choices?.[0]?.message?.content ?? "";
-  if (!text.trim()) throw new Error(`OpenRouter empty ${model}`);
+  if (!text.trim()) throw new Error(`empty ${label}/${model}`);
   return text as string;
 }
+
+const callOpenAI = (p: string, t: number, m: number) =>
+  chatCompletions(
+    "https://api.openai.com/v1/chat/completions",
+    OPENAI_KEY, OPENAI_MODEL, p, t, m, "openai",
+  );
+
+const callOpenRouter = (model: string, p: string, t: number, m: number) =>
+  chatCompletions(
+    "https://openrouter.ai/api/v1/chat/completions",
+    OPENROUTER_KEY, model, p, t, m, "openrouter",
+  );
+
+const callFreeRouter = (model: string, p: string, t: number, m: number) =>
+  chatCompletions(FREEROUTER_URL, FREEROUTER_KEY, model, p, t, m, "freerouter");
 
 async function callGemini(
   model: string,
@@ -225,58 +224,87 @@ async function callGemini(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature, maxOutputTokens: maxTokens },
+        generationConfig: {
+          temperature,
+          maxOutputTokens: Math.max(maxTokens, GEMINI_MIN_TOKENS),
+        },
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(LLM_TIMEOUT),
     },
   );
-  if (res.status === 429) throw new Error(`429 ${model}`);
-  if (!res.ok) throw new Error(`Gemini ${res.status} ${model}`);
+  if (res.status === 429) throw new Error(`429 gemini/${model}`);
+  if (!res.ok) {
+    throw new Error(`${res.status} gemini/${model} ${(await res.text().catch(() => "")).slice(0, 160)}`);
+  }
   const json = await res.json();
   const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  if (!text.trim()) throw new Error(`Gemini empty ${model}`);
+  if (!text.trim()) {
+    throw new Error(
+      `empty gemini/${model} finish=${json?.candidates?.[0]?.finishReason ?? "?"}`,
+    );
+  }
   return text as string;
 }
 
-/// Walks every provider in turn. One that is out of quota costs a single
-/// failed request and the next one is tried immediately.
-///
-/// `trustedOnly` skips the free OpenRouter models. Use it for any task whose
-/// answer is written into the shared dictionary. Measured against known words,
-/// those models return confident, well-formed, WRONG JSON — "кітап" came back
-/// as "unknown", "жалаңаш" as "silly" and "yellowish" — and dict_upsert makes
-/// one bad answer permanent for every learner. Where nothing is persisted
-/// (chat, explain, enrich) they are a genuine safety net and stay in the chain.
-/// FreeRouter speaks the OpenAI chat-completions shape, so this is the same
-/// call as callOpenAI with a different base URL and no cost.
-async function callFreeRouter(
-  model: string,
+/// One attempt at one model, named so a caller can pick a SECOND opinion from
+/// a different vendor rather than the same one twice.
+type Attempt = { id: string; run: () => Promise<string> };
+
+/// Every provider this project can reach, best first. `trustedOnly` drops the
+/// free OpenRouter models, which return confident well-formed wrong JSON —
+/// "кітап" as "unknown", "жалаңаш" as "silly" — and are therefore unfit for
+/// anything that lands in the shared dictionary.
+function chain(
   prompt: string,
   temperature: number,
   maxTokens: number,
-) {
-  if (!FREEROUTER_KEY) throw new Error(NO_KEY_MSG);
-  const res = await fetch(FREEROUTER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${FREEROUTER_KEY}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature,
-      max_tokens: maxTokens,
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
-  if (!res.ok) {
-    throw new Error(`freerouter ${model} ${res.status} ${await res.text()}`);
+  trustedOnly: boolean,
+): Attempt[] {
+  const out: Attempt[] = [];
+  if (GEMINI_KEY) {
+    for (const m of GEMINI_MODELS) {
+      out.push({ id: `gemini/${m}`, run: () => callGemini(m, prompt, temperature, maxTokens) });
+    }
   }
-  const json = await res.json();
-  const text = json?.choices?.[0]?.message?.content ?? "";
-  if (!text.trim()) throw new Error(`freerouter ${model} empty`);
-  return text as string;
+  if (FREEROUTER_KEY) {
+    for (const m of FREEROUTER_MODELS) {
+      out.push({ id: `freerouter/${m}`, run: () => callFreeRouter(m, prompt, temperature, maxTokens) });
+    }
+  }
+  if (OPENAI_KEY) {
+    out.push({ id: `openai/${OPENAI_MODEL}`, run: () => callOpenAI(prompt, temperature, maxTokens) });
+  }
+  if (OPENROUTER_KEY && !trustedOnly) {
+    for (const m of FREE_MODELS) {
+      out.push({ id: `openrouter/${m}`, run: () => callOpenRouter(m, prompt, temperature, maxTokens) });
+    }
+  }
+  return out;
+}
+
+/// Walks the chain until one provider answers. Returns the text and which
+/// model produced it, so a wrong word can be traced to its source instead of
+/// being blamed on "the AI".
+async function completeFrom(
+  attempts: Attempt[],
+  skip = new Set<string>(),
+): Promise<{ text: string; model: string }> {
+  const problems: string[] = [];
+  for (const a of attempts) {
+    if (skip.has(a.id)) continue;
+    try {
+      return { text: await a.run(), model: a.id };
+    } catch (e) {
+      problems.push(String(e));
+    }
+  }
+  const all = problems.join(" | ");
+  if (problems.length > 0 && problems.every((p) => p.includes(NO_KEY_MSG))) {
+    throw new Error(NO_KEY_MSG);
+  }
+  throw new Error(
+    all.includes("429") ? `${RATE_MSG} | ${all}` : all || MSG.noAnswer.kk,
+  );
 }
 
 async function complete(
@@ -285,78 +313,20 @@ async function complete(
   maxTokens = 2048,
   trustedOnly = false,
 ) {
-  const problems: string[] = [];
-
-  // FreeRouter first: it costs nothing and, on the probe that matters, it was
-  // the only provider configured here that got the hard word right.
-  if (FREEROUTER_KEY) {
-    for (const model of [FREEROUTER_PRIMARY, FREEROUTER_SECOND]) {
-      try {
-        return await callFreeRouter(model, prompt, temperature, maxTokens);
-      } catch (e) {
-        problems.push(String(e));
-      }
-    }
-  }
-
-  if (OPENAI_KEY) {
-    try {
-      return await callOpenAI(prompt, temperature, maxTokens);
-    } catch (e) {
-      problems.push(String(e));
-    }
-  }
-
-  // Gemini before OpenRouter, deliberately. Accuracy decides the order here,
-  // not speed: a translate answer is written straight into the shared
-  // dictionary, so a confident wrong answer becomes every learner's answer.
-  // Probed on "жалаңаш", Gemini returned "naked" while the free OpenRouter
-  // models returned "newcomer", "silly" and "yellowish" — which is how the
-  // dictionary came to answer "жалаңаш" with the wrong word in the first place.
-  for (const model of GEMINI_MODELS) {
-    try {
-      return await callGemini(model, prompt, temperature, maxTokens);
-    } catch (e) {
-      const msg = String(e);
-      problems.push(msg);
-      if (msg.includes(NO_KEY_MSG)) break;
-    }
-  }
-
-  if (!trustedOnly) {
-    for (const model of FREE_MODELS) {
-      try {
-        return await callOpenRouter(model, prompt, temperature, maxTokens);
-      } catch (e) {
-        const msg = String(e);
-        problems.push(msg);
-        if (msg.includes(NO_KEY_MSG)) break; // no key at all — skip the rest
-      }
-    }
-  }
-
-  const all = problems.join(" | ");
-  if (problems.length > 0 && problems.every((p) => p.includes(NO_KEY_MSG))) {
-    throw new Error(NO_KEY_MSG);
-  }
-  // RATE_MSG stays the leading text so the status mapping keeps matching on
-  // it, but the provider detail rides along for the `note` field.
-  throw new Error(
-    all.includes("429") ? `${RATE_MSG} | ${all}` : all || MSG.noAnswer.kk,
-  );
+  return (await completeFrom(chain(prompt, temperature, maxTokens, trustedOnly))).text;
 }
 
 // ── Keyless translation fallback ───────────────────────────
-
-/// Key-less translation providers, tried in order. None of them needs an API
-/// key, and none of them is reliable on its own from a datacentre IP — the
-/// Google endpoint in particular starts refusing requests — so the chain
-/// matters more than any single one of them.
+//
+// None of these needs an API key and none is reliable on its own from a
+// datacentre IP, so the chain matters more than any single one. They are
+// raced rather than walked: three 4-second attempts in sequence is twelve
+// seconds a learner spends watching a spinner.
 
 async function viaGoogle(text: string, from: string, to: string) {
   const url = "https://translate.googleapis.com/translate_a/single" +
     `?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(FREE_TIMEOUT) });
   if (!res.ok) return "";
   const json = await res.json();
   return (json?.[0] ?? [])
@@ -368,7 +338,7 @@ async function viaGoogle(text: string, from: string, to: string) {
 async function viaMyMemory(text: string, from: string, to: string) {
   const url = "https://api.mymemory.translated.net/get" +
     `?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(FREE_TIMEOUT) });
   if (!res.ok) return "";
   const json = await res.json();
   const out = String(json?.responseData?.translatedText ?? "").trim();
@@ -379,7 +349,7 @@ async function viaMyMemory(text: string, from: string, to: string) {
 
 async function viaLingva(text: string, from: string, to: string) {
   const url = `https://lingva.ml/api/v1/${from}/${to}/${encodeURIComponent(text)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(FREE_TIMEOUT) });
   if (!res.ok) return "";
   const json = await res.json();
   return String(json?.translation ?? "").trim();
@@ -410,28 +380,26 @@ function tidy(out: string, src: string, to: string): string {
   return s;
 }
 
-/// Walks the providers until one answers. `from` must be a real language code
-/// — auto-detection is done here rather than by the provider, because the two
-/// that support it disagree about Kazakh.
+/// Races the providers and takes the first answer that survives the gate.
+/// `from` must be a real language code — auto-detection is done here rather
+/// than by the provider, because the two that support it disagree about
+/// Kazakh.
 async function freeTranslate(
   text: string,
   from: string,
   to: string,
 ): Promise<string> {
-  for (const provider of [viaGoogle, viaMyMemory, viaLingva]) {
-    try {
-      const out = tidy(await provider(text, from, to), text, to);
-      if (!out) continue;
-      // The gate, not just "is it different from the input". MyMemory and
-      // Lingva answer Kazakh with a respelling of the Kazakh, which passes
-      // every test tidy() makes and is the exact defect this release names.
-      if (gate(text, out, to as "en" | "kk" | "ru") !== null) continue;
-      return out;
-    } catch {
-      // try the next provider
-    }
+  const one = async (p: (t: string, f: string, x: string) => Promise<string>) => {
+    const out = tidy(await p(text, from, to), text, to);
+    if (!out) throw new Error("empty");
+    if (gate(text, out, to as "en" | "kk" | "ru") !== null) throw new Error("gated");
+    return out;
+  };
+  try {
+    return await Promise.any([viaGoogle, viaMyMemory, viaLingva].map(one));
+  } catch {
+    return "";
   }
-  return "";
 }
 
 const hasCyrillic = (s: string) => /[Ѐ-ӿ]/.test(s);
@@ -440,31 +408,26 @@ const isKazakhOnly = (s: string) => /[әғқңөұүһі]/i.test(s);
 
 // ── The translation gate (EN-49 / KK-8) ────────────────────
 //
-// The named bug: "шамшырақ" was answered with "shamshyraq". That is the word
-// written in Latin letters, not translated, and it reached learners as if it
-// were a real answer.
+// The named bug: "шамшырақ" was answered with "shamshyraq", and "шаңырақ"
+// with "shangri-la". Both are the word written in Latin letters rather than
+// translated, and both reached learners as if they were real answers.
 //
-// It got through because nothing was looking for it. `tidy()` checks the
-// SCRIPT of an answer — Latin for English, Cyrillic for Kazakh — and a
-// transliteration passes that check perfectly: it is Latin, it is one word, it
-// is about the right length. MyMemory and Lingva, two of the three keyless
-// providers, return transliterations for Kazakh routinely.
-//
-// So the gate below asks the question the script check cannot: is this answer
-// simply the source word respelled? Everything is structural. Nothing here
-// asks the model how sure it is, because the probe that motivated this file
-// had two models answer the same word with "beacon" and "sunflower" and both
-// report 0.95.
+// A script check cannot catch this — a transliteration is Latin, one word,
+// about the right length. So the gate asks the question the script test
+// cannot: is this answer simply the source word respelled? Everything here is
+// structural. Nothing asks a model how sure it is.
 
-/// Kazakh Cyrillic to Latin, in the shape the transliterating providers use.
-/// Digraphs first — a naive per-character table turns "ш" into "s" and stops
-/// "shamshyraq" from matching "шамшырақ" at all, which is the one comparison
-/// this table exists to make.
-const TRANSLIT: Array<[RegExp, string]> = [
+/// Kazakh Cyrillic to Latin. TWO tables, because the providers disagree about
+/// how to respell the same letter and a single table misses half of them:
+/// `tight` is the compact convention (ң→n, қ→q) and `loose` the expanded one
+/// (ң→ng, қ→k). "шаңырақ" is "shanyraq" under one and "shangyrak" under the
+/// other — and it is only the second that puts it close enough to
+/// "shangri-la" to be caught.
+const TRANSLIT_COMMON: Array<[RegExp, string]> = [
   [/щ/g, "sh"], [/ш/g, "sh"], [/ч/g, "ch"], [/ц/g, "ts"],
   [/ю/g, "yu"], [/я/g, "ya"], [/ё/g, "yo"], [/ж/g, "zh"],
-  [/ә/g, "a"], [/ғ/g, "g"], [/қ/g, "q"], [/ң/g, "n"],
-  [/ө/g, "o"], [/ұ/g, "u"], [/ү/g, "u"], [/һ/g, "h"], [/і/g, "i"],
+  [/ә/g, "a"], [/ғ/g, "g"], [/ө/g, "o"], [/ұ/g, "u"], [/ү/g, "u"],
+  [/һ/g, "h"], [/і/g, "i"],
   [/а/g, "a"], [/б/g, "b"], [/в/g, "v"], [/г/g, "g"], [/д/g, "d"],
   [/е/g, "e"], [/з/g, "z"], [/и/g, "i"], [/й/g, "y"], [/к/g, "k"],
   [/л/g, "l"], [/м/g, "m"], [/н/g, "n"], [/о/g, "o"], [/п/g, "p"],
@@ -472,11 +435,37 @@ const TRANSLIT: Array<[RegExp, string]> = [
   [/х/g, "h"], [/ы/g, "y"], [/э/g, "e"], [/ъ/g, ""], [/ь/g, ""],
 ];
 
-function romanise(s: string): string {
+const TRANSLIT_TIGHT: Array<[RegExp, string]> = [
+  [/қ/g, "q"], [/ң/g, "n"], ...TRANSLIT_COMMON,
+];
+const TRANSLIT_LOOSE: Array<[RegExp, string]> = [
+  [/қ/g, "k"], [/ң/g, "ng"], ...TRANSLIT_COMMON,
+];
+
+function romaniseWith(s: string, table: Array<[RegExp, string]>): string {
   let out = s.toLowerCase();
-  for (const [re, to] of TRANSLIT) out = out.replace(re, to);
+  for (const [re, to] of table) out = out.replace(re, to);
   return out.replace(/[^a-z]/g, "");
 }
+
+/// How much a Latin string looks like a respelling of a Cyrillic one, under
+/// either convention. Taking the max is the point: a provider only has to
+/// match one of them for this to be a transliteration.
+function translitScore(cyrillic: string, latin: string): number {
+  const flat = latin.toLowerCase().replace(/[^a-z]/g, "");
+  if (flat.length < 3) return 0;
+  return Math.max(
+    similarity(romaniseWith(cyrillic, TRANSLIT_TIGHT), flat),
+    similarity(romaniseWith(cyrillic, TRANSLIT_LOOSE), flat),
+  );
+}
+
+/// 0.55, down from 0.72. Measured against the two words this exists for:
+/// "шаңырақ"/"shangri-la" scores 0.61 under the loose table (0.56 tight), and
+/// "шамшырақ"/"shamshyraq" scores 1.00 — while real translations sit far
+/// below: "мұғалім"/"teacher" 0.14, "жалаңаш"/"naked" 0.22,
+/// "шамшырақ"/"beacon" 0.20, "шаңырақ"/"yurt crown" 0.20.
+const TRANSLIT_LIMIT = 0.55;
 
 /// Levenshtein distance, normalised to 0..1 against the longer string.
 function similarity(a: string, b: string): number {
@@ -525,16 +514,25 @@ function gate(src: string, candidate: string, to: "en" | "kk" | "ru"): GateFail 
   const bare = (x: string) => x.replace(/[^\p{L}]/gu, "");
   if (bare(s) === bare(c)) return "identity";
 
-  // TRANSLITERATION. The check the script test cannot make: is this the source
-  // word simply respelled? 0.72 is deliberately below a perfect match —
-  // providers differ on ш/sh versus ш/s and on whether қ becomes q or k, so an
-  // exact comparison would let half the transliterations through.
-  if (to === "en" && hasCyrillic(s)) {
-    const romanised = romanise(s);
-    const flat = c.replace(/[^a-z]/g, "");
-    if (romanised.length >= 3 && similarity(romanised, flat) >= 0.72) {
-      return "translit";
-    }
+  // TRANSLITERATION, forwards: a Cyrillic term answered with its own Latin
+  // respelling. This is "шаңырақ" → "shangri-la".
+  if (to === "en" && hasCyrillic(s) && translitScore(s, c) >= TRANSLIT_LIMIT) {
+    return "translit";
+  }
+
+  // TRANSLITERATION, backwards: a Latin term answered with its own Cyrillic
+  // respelling — "shangri-la" → "шангри-ла", which the forward test cannot
+  // see because neither string is where it expects it.
+  if (to !== "en" && hasLatin(s) && translitScore(c, s) >= TRANSLIT_LIMIT) {
+    return "translit";
+  }
+
+  // And the case both of the above miss: a Cyrillic term whose Cyrillic
+  // "translation" into the other Cyrillic language is the same respelling.
+  // "шаңырақ" → "шангри-ла" is not Russian for anything.
+  if (to !== "en" && hasCyrillic(s) && hasCyrillic(c)) {
+    const both = (x: string) => romaniseWith(x, TRANSLIT_LOOSE);
+    if (similarity(both(s), both(c)) >= 0.78) return "identity";
   }
 
   // LENGTH. A one-word term does not translate into a sentence, and nothing
@@ -546,20 +544,24 @@ function gate(src: string, candidate: string, to: "en" | "kk" | "ru"): GateFail 
   return null;
 }
 
-/// Records what the gate refused, so EN-50's review queue has something to
-/// review and a repeatedly-failing word is visible rather than merely absent.
-/// Never allowed to break a request: a translation that could not be logged is
-/// still a translation that must not be shown.
+/// Records what the gate refused, so the review queue has something to review
+/// and a repeatedly-failing word is visible rather than merely absent.
+///
+/// Uses the SERVICE client, not the caller's: the RLS policy on
+/// `translation_reports` is moderator-only, so under a learner's own token
+/// every insert was silently refused and the table stayed empty.
+/// Never allowed to break a request.
 async function reportRejection(
-  supabase: ReturnType<typeof createClient>,
+  admin: SupabaseClient | null,
   term: string,
   candidate: string,
   failed: GateFail,
   to: string,
   provider: string,
 ) {
+  if (!admin) return;
   try {
-    await supabase.from("translation_reports").insert({
+    await admin.from("translation_reports").insert({
       term,
       source_lang: detectLang(term),
       target_lang: to,
@@ -580,16 +582,14 @@ function detectLang(t: string): "en" | "kk" | "ru" {
   return isKazakhOnly(t) ? "kk" : "ru";
 }
 
-/// Builds a plain en/kk/ru triple without any LLM. No definition, synonyms or
-/// example — deliberately NOT written into the shared dictionary, so the
-/// brain only ever stores full-quality entries.
+/// Builds a plain en/kk/ru triple without any LLM. The two directions that do
+/// not depend on each other run together — sequentially this was three
+/// round trips where two would do.
 async function basicEntry(term: string) {
   const t = term.trim();
   if (!t) return null;
 
   let en = "";
-  let kk = "";
-  let ru = "";
   let src = detectLang(t);
 
   if (src === "en") {
@@ -606,17 +606,10 @@ async function basicEntry(term: string) {
     if (!en) return null;
   }
 
-  if (src === "kk") {
-    kk = t;
-  } else {
-    kk = await freeTranslate(en, "en", "kk");
-  }
-
-  if (src === "ru") {
-    ru = t;
-  } else {
-    ru = await freeTranslate(en, "en", "ru");
-  }
+  const [kk, ru] = await Promise.all([
+    src === "kk" ? Promise.resolve(t) : freeTranslate(en, "en", "kk"),
+    src === "ru" ? Promise.resolve(t) : freeTranslate(en, "en", "ru"),
+  ]);
 
   if (!en || !kk) return null;
   return {
@@ -625,8 +618,8 @@ async function basicEntry(term: string) {
     ru: ru ? ru.toLowerCase() : null,
     pos: null,
     definition_en: null,
-    synonyms: [],
-    antonyms: [],
+    synonyms: [] as string[],
+    antonyms: [] as string[],
     example_en: null,
     example_kk: null,
     ipa: null,
@@ -663,6 +656,131 @@ const clean = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const arr = (v: unknown) =>
   Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).slice(0, 6) : [];
 
+const norm = (v: unknown) =>
+  clean(v).toLowerCase().replace(/\s+/g, " ").replace(/^to /, "");
+
+type Entry = Record<string, unknown>;
+
+/// Whether a dictionary row can be handed to a learner as it stands.
+///
+/// The requirement is explicit: use the stored row only when the English, the
+/// Kazakh, the Russian, the English meaning, the synonyms AND the example
+/// sentence are all there. Anything less and the AI fills the gaps — an
+/// entry with a blank meaning is what made people type it in by hand.
+function isComplete(e: Entry | null | undefined): boolean {
+  if (!e) return false;
+  return clean(e.en) !== "" &&
+    clean(e.kk) !== "" &&
+    clean(e.ru) !== "" &&
+    clean(e.definition_en) !== "" &&
+    clean(e.example_en) !== "" &&
+    arr(e.synonyms).length >= 2;
+}
+
+/// `dict_lookup` has an exact branch and a fuzzy one (similarity >= 0.45) and
+/// does not say which answered, so a merely SIMILAR row used to be served as
+/// though it were the word. This is that missing distinction.
+function isExactMatch(e: Entry, term: string): boolean {
+  const t = norm(term);
+  return norm(e.en) === t || norm(e.kk) === t || norm(e.ru) === t;
+}
+
+const TRANSLATE_FIELDS =
+  `  en            - the English form (for verbs use the "to X" infinitive)\n` +
+  `  kk            - the Kazakh form\n` +
+  `  ru            - the Russian form\n` +
+  `  pos           - one of: noun, verb, adjective, adverb, phrase, other\n` +
+  `  definition_en - a short English definition (max 15 words)\n` +
+  `  synonyms      - array of 2-4 English synonyms\n` +
+  `  antonyms      - array of 0-2 English antonyms\n` +
+  `  example_en    - one natural English example sentence\n` +
+  `  example_kk    - the Kazakh translation of that sentence\n` +
+  `  ipa           - IPA transcription of the English form\n` +
+  `  emoji         - one relevant emoji\n` +
+  `  cefr          - one of A0, A1, A2, B1, B2, C1\n` +
+  `  topic         - one of: general, food, travel, family, body, home, school, ` +
+  `work, nature, animals, tech, emotions, sport, time, city, money, health, communication`;
+
+/// The prompt says out loud what the gate enforces. Models that respell a
+/// word usually do it because nothing told them not to.
+const translatePrompt = (term: string) =>
+  `You are a Kazakh<->English lexicographer for a vocabulary app.\n` +
+  `Input term: "${term}"\n` +
+  `Detect the language and produce BOTH sides.\n` +
+  `IMPORTANT: writing the term in Latin letters (a romanisation such as\n` +
+  `"shanyraq" for "шаңырақ") is NOT a translation and is never acceptable.\n` +
+  `Give the real meaning. If you genuinely do not know the word, set en to "".\n` +
+  `Return ONLY a raw JSON object, no markdown, with exactly these fields:\n` +
+  TRANSLATE_FIELDS;
+
+/// The second opinion. A different vendor where one is available, asked the
+/// narrow question so its answer is cheap and hard to misread.
+const secondPrompt = (term: string) =>
+  `What does the word "${term}" mean in English?\n` +
+  `Answer with the meaning, never with the word rewritten in Latin letters.\n` +
+  `Return ONLY {"en":"..."}. If you do not know it, return {"en":""}.`;
+
+const enrichPrompt = (en: string, kk: string) =>
+  `For the English word "${en}" (Kazakh: "${kk}") return ONLY raw JSON with fields:\n` +
+  `  definition_en - short English definition (max 15 words)\n` +
+  `  synonyms      - array of 3-4 English synonyms\n` +
+  `  antonyms      - array of 0-2 English antonyms\n` +
+  `  example_en    - one natural example sentence using the word\n` +
+  `  example_kk    - the Kazakh translation of that sentence\n` +
+  `  ipa           - IPA transcription\n` +
+  `  emoji         - one relevant emoji\n` +
+  `  cefr          - one of A0, A1, A2, B1, B2, C1`;
+
+/// Fills whatever a row is still missing, in one request, and never fails the
+/// caller: a partial entry is better than an error.
+async function fillGaps(entry: Entry): Promise<Entry> {
+  if (isComplete(entry)) return entry;
+  const en = clean(entry.en), kk = clean(entry.kk);
+  if (!en) return entry;
+  try {
+    const extra = parseJson(await complete(enrichPrompt(en, kk), 0.25, 700)) as Entry;
+    const keep = (k: string, v: unknown) =>
+      clean(entry[k]) !== "" ? entry[k] : (clean(v) !== "" ? clean(v) : entry[k]);
+    return {
+      ...entry,
+      definition_en: keep("definition_en", extra.definition_en),
+      example_en: keep("example_en", extra.example_en),
+      example_kk: keep("example_kk", extra.example_kk),
+      ipa: keep("ipa", extra.ipa),
+      emoji: keep("emoji", extra.emoji),
+      cefr: CEFR.includes(clean(entry.cefr))
+        ? entry.cefr
+        : (CEFR.includes(clean(extra.cefr)) ? clean(extra.cefr) : "A2"),
+      synonyms: arr(entry.synonyms).length >= 2 ? arr(entry.synonyms) : arr(extra.synonyms),
+      antonyms: arr(entry.antonyms).length > 0 ? arr(entry.antonyms) : arr(extra.antonyms),
+    };
+  } catch {
+    return entry;
+  }
+}
+
+/// One place that writes a dictionary row, always under the service key.
+async function saveEntry(admin: SupabaseClient | null, e: Entry, source: string) {
+  if (!admin) return null;
+  const { data, error } = await admin.rpc("dict_upsert", {
+    p_en: clean(e.en),
+    p_kk: clean(e.kk),
+    p_ru: clean(e.ru) || null,
+    p_pos: clean(e.pos) || null,
+    p_definition_en: clean(e.definition_en) || null,
+    p_synonyms: arr(e.synonyms),
+    p_antonyms: arr(e.antonyms),
+    p_example_en: clean(e.example_en) || null,
+    p_example_kk: clean(e.example_kk) || null,
+    p_ipa: clean(e.ipa) || null,
+    p_emoji: clean(e.emoji) || null,
+    p_cefr: CEFR.includes(clean(e.cefr)) ? clean(e.cefr) : "A2",
+    p_topic: clean(e.topic) || "general",
+    p_source: source,
+  });
+  return error ? null : data;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -685,6 +803,12 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } },
     );
+    // Writes go through this one. dict_upsert is revoked from `authenticated`
+    // and translation_reports is moderator-only under RLS, so without it the
+    // dictionary silently stops growing and the review queue stays empty.
+    const admin: SupabaseClient | null = SERVICE_KEY
+      ? createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_KEY)
+      : null;
 
     const body = await req.json().catch(() => ({}));
     lang = clean(body.lang) === "ru" ? "ru" : "kk";
@@ -698,88 +822,111 @@ Deno.serve(async (req) => {
     // probing lives in the separate `ai-probe` function.
     if (task === "health") {
       return ok({
+        gemini: GEMINI_KEY.length > 0,
+        gemini_models: GEMINI_KEY ? GEMINI_MODELS : null,
         freerouter: FREEROUTER_KEY.length > 0,
-        freerouter_models: FREEROUTER_KEY
-          ? [FREEROUTER_PRIMARY, FREEROUTER_SECOND]
-          : null,
         openai: OPENAI_KEY.length > 0,
         openai_model: OPENAI_KEY ? OPENAI_MODEL : null,
         openrouter: OPENROUTER_KEY.length > 0,
-        gemini: GEMINI_KEY.length > 0,
+        service_key: SERVICE_KEY.length > 0,
+        order: chain("", 0, 0, true).map((a) => a.id),
       });
     }
 
-    // ── translate: cache-first, then AI, then a keyless fallback ──
+    // ── translate ────────────────────────────────────────────
+    //
+    //   1. the shared dictionary, but only an EXACT row that is COMPLETE
+    //   2. two models at once — one full entry, one second opinion
+    //   3. the gate, then agreement
+    //   4. whatever is still blank gets filled
+    //   5. the keyless services, if every model is spent
     if (task === "translate") {
       const term = clean(body.text);
       if (!term) return fail(say("empty", lang));
 
+      const srcLang = detectLang(term);
+      const target: "en" | "kk" | "ru" = srcLang === "en" ? "kk" : "en";
+
+      // 1. Cache. Only an exact hit counts — dict_lookup also returns rows
+      // that merely resemble the term — and only a complete one is returned
+      // as-is. An incomplete row is kept and filled in rather than discarded,
+      // so a half-written entry improves instead of staying half-written.
+      let partial: Entry | null = null;
       const { data: cached } = await supabase.rpc("dict_lookup", { p_term: term });
-      if (Array.isArray(cached) && cached.length > 0) {
-        return ok({ source: "cache", entry: cached[0] });
+      if (Array.isArray(cached)) {
+        const exact = (cached as Entry[]).find((r) => isExactMatch(r, term));
+        if (exact) {
+          // A row the ungated version already poisoned must not be served for
+          // ever just because it is stored.
+          const stored = target === "en" ? clean(exact.en) : clean(exact.kk);
+          const rot = srcLang === "en" ? null : gate(term, stored, target);
+          if (rot !== null) {
+            await reportRejection(admin, term, stored, rot, target, "cache");
+          } else if (isComplete(exact)) {
+            return ok({ source: "cache", entry: exact });
+          } else {
+            partial = exact;
+          }
+        }
       }
 
-      const prompt =
-        `You are a Kazakh<->English lexicographer for a vocabulary app.\n` +
-        `Input term: "${term}"\n` +
-        `Detect the language and produce BOTH sides.\n` +
-        `Return ONLY a raw JSON object, no markdown, with exactly these fields:\n` +
-        `  en            - the English form (for verbs use the "to X" infinitive)\n` +
-        `  kk            - the Kazakh form\n` +
-        `  ru            - the Russian form\n` +
-        `  pos           - one of: noun, verb, adjective, adverb, phrase, other\n` +
-        `  definition_en - a short English definition (max 15 words)\n` +
-        `  synonyms      - array of 2-4 English synonyms\n` +
-        `  antonyms      - array of 0-2 English antonyms\n` +
-        `  example_en    - one natural English example sentence\n` +
-        `  example_kk    - the Kazakh translation of that sentence\n` +
-        `  ipa           - IPA transcription of the English form\n` +
-        `  emoji         - one relevant emoji\n` +
-        `  cefr          - one of A0, A1, A2, B1, B2, C1\n` +
-        `  topic         - one of: general, food, travel, family, body, home, school, ` +
-        `work, nature, animals, tech, emotions, sport, time, city, money, health, communication`;
+      // 2. Two models, at the same time. The second opinion used to be a
+      // whole extra round trip AFTER the first answer; asked in parallel it
+      // is free in wall-clock terms.
+      const primaryChain = chain(translatePrompt(term), 0.2, 1024, true);
+      const first = completeFrom(primaryChain);
+      const secondChain = chain(secondPrompt(term), 0.1, 400, true);
+      const second = secondChain.length > 1
+        // A different model from the one the primary will use, so agreement
+        // means two opinions rather than one model asked twice.
+        ? completeFrom(secondChain.slice(1)).catch(() => null)
+        : Promise.resolve(null);
 
-      let parsed: Record<string, unknown> | null = null;
+      let parsed: Entry | null = null;
+      let usedModel = "";
       let llmError = "";
       try {
-        parsed = parseJson(await complete(prompt, 0.2, 1024, true));
+        const r = await first;
+        usedModel = r.model;
+        parsed = parseJson(r.text) as Entry;
       } catch (e) {
         llmError = e instanceof Error ? e.message : String(e);
       }
+      const secondRes = await second;
 
       const en = clean(parsed?.en);
       const kk = clean(parsed?.kk);
 
       // Every model is out of quota (or the answer was unusable) — fall back
-      // to a plain dictionary-grade translation so the user is never stuck.
+      // to a plain dictionary-grade translation so the learner is never stuck,
+      // and fill it in rather than handing over an empty form.
       if (!en || !kk) {
+        if (partial) {
+          const filled = await fillGaps(partial);
+          await saveEntry(admin, filled, clean(partial.source) || "ai");
+          return ok({ source: "cache", entry: filled, note: llmError });
+        }
         const basic = await basicEntry(term);
-        if (basic) return ok({ source: "basic", entry: basic, note: llmError });
+        if (basic) {
+          const filled = await fillGaps(basic as Entry);
+          const saved = isComplete(filled) ? await saveEntry(admin, filled, "basic") : null;
+          return ok({
+            source: isComplete(filled) ? "ai" : "basic",
+            entry: saved ?? filled,
+            note: llmError,
+          });
+        }
         if (llmError.includes(NO_KEY_MSG)) return fail(say("noKey", lang), 503);
         if (llmError.includes(RATE_MSG)) return fail(say("rate", lang), 429);
         return fail(llmError || say("noTranslation", lang), llmError ? 429 : 400);
       }
 
-      // ── The gate, before anything is written (EN-49 / KK-8) ──
-      //
-      // This answer is about to become the shared dictionary's answer for
-      // everybody, for ever. A wrong word here is not one learner's problem,
-      // it is the app's. So it has to survive both checks:
-      //
-      //   1. the structural one — script, identity, transliteration, length;
-      //   2. agreement with a second, independent model.
-      //
-      // The second check exists because of the probe in the header: two
-      // models answered "шамшырақ" with "beacon" and "sunflower", each at
-      // 0.95 confidence. Nothing about a single confident answer distinguishes
-      // those two cases, so a single answer is not enough to publish on.
-      const srcLang = detectLang(term);
-      const target: "en" | "kk" | "ru" = srcLang === "en" ? "kk" : "en";
+      // 3. The gate, before anything is written. This answer is about to
+      // become the shared dictionary's answer for everybody.
       const candidate = target === "en" ? en : kk;
-
       const failed = gate(term, candidate, target);
       if (failed !== null) {
-        await reportRejection(supabase, term, candidate, failed, target, "llm");
+        await reportRejection(admin, term, candidate, failed, target, usedModel);
         return ok({
           source: "rejected",
           reason: failed,
@@ -787,39 +934,31 @@ Deno.serve(async (req) => {
           message: say("noTranslation", lang),
         });
       }
+      // The Russian side was never gated at all, which is how "шангри-ла"
+      // was going to be stored next to "shangri-la".
+      const ru = clean(parsed?.ru);
+      const ruBad = ru && srcLang !== "ru" ? gate(term, ru, "ru") : null;
 
-      // A second opinion, and only for a term the dictionary does not already
-      // hold — this is the one path that writes, so it is the one path worth
-      // spending a second request on.
+      // Agreement. An empty or missing second answer is an abstention, not a
+      // contradiction — one model not knowing a word is not evidence the
+      // other is wrong.
       let agreed = true;
-      if (FREEROUTER_KEY) {
+      let otherEn = "";
+      if (secondRes) {
         try {
-          const check = parseJson(await callFreeRouter(
-            FREEROUTER_SECOND,
-            `Translate this ${LANG_NAME[srcLang === "ru" ? "ru" : "kk"] ??
-              "Kazakh"} term into English. Return ONLY {"en":"..."} with the ` +
-            `real meaning. If you do not know it, return {"en":""}.\n` +
-            `Term: "${term}"`,
-            0.1,
-            120,
-          ));
-          const other = clean(check?.en).toLowerCase();
-          // An empty second answer is an abstention, not a contradiction —
-          // one model not knowing a word is not evidence the other is wrong.
-          if (other && target === "en") {
-            agreed = similarity(
-              other.replace(/[^a-z]/g, ""),
-              en.toLowerCase().replace(/[^a-z]/g, ""),
-            ) >= 0.6;
-          }
-        } catch {
-          // No second opinion available. The structural gate already passed,
-          // so the answer stands rather than the learner getting nothing.
-        }
+          otherEn = clean((parseJson(secondRes.text) as Entry).en).toLowerCase();
+        } catch { /* unusable second opinion is an abstention too */ }
+      }
+      if (otherEn && target === "en") {
+        const a = otherEn.replace(/[^a-z]/g, "");
+        const b = en.toLowerCase().replace(/[^a-z]/g, "");
+        // Either the same word, or one contains the other — models answer
+        // "lighthouse" and "lighthouse, beacon" for the same term.
+        agreed = similarity(a, b) >= 0.6 || a.includes(b) || b.includes(a);
       }
 
       if (!agreed) {
-        await reportRejection(supabase, term, en, "disagree", target, "llm");
+        await reportRejection(admin, term, `${en} / ${otherEn}`, "disagree", target, usedModel);
         return ok({
           source: "rejected",
           reason: "disagree",
@@ -828,28 +967,33 @@ Deno.serve(async (req) => {
         });
       }
 
-      const { data: saved, error } = await supabase.rpc("dict_upsert", {
-        p_en: en,
-        p_kk: kk,
-        p_pos: clean(parsed?.pos) || null,
-        p_definition_en: clean(parsed?.definition_en) || null,
-        p_synonyms: arr(parsed?.synonyms),
-        p_antonyms: arr(parsed?.antonyms),
-        p_example_en: clean(parsed?.example_en) || null,
-        p_example_kk: clean(parsed?.example_kk) || null,
-        p_ipa: clean(parsed?.ipa) || null,
-        p_emoji: clean(parsed?.emoji) || null,
-        p_cefr: CEFR.includes(clean(parsed?.cefr)) ? clean(parsed?.cefr) : "A2",
-        p_topic: clean(parsed?.topic) || "general",
-        p_source: "ai",
-      });
-      const ru = clean(parsed?.ru);
-      if (error) return ok({ source: "ai", entry: { ...parsed, en, kk } });
+      // 4. Fill whatever is blank, merging anything the stored row already
+      // had — a moderator's correction outranks a fresh model answer.
+      let entry: Entry = {
+        ...parsed,
+        en,
+        kk,
+        ru: ruBad === null ? ru : "",
+      };
+      if (partial) {
+        for (const k of Object.keys(partial)) {
+          const v = partial[k];
+          if (k === "synonyms" || k === "antonyms") {
+            if (arr(v).length >= 2) entry[k] = arr(v);
+          } else if (clean(v) !== "" && partial.verified === true) {
+            entry[k] = v;
+          }
+        }
+      }
+      entry = await fillGaps(entry);
+
+      const saved = await saveEntry(admin, entry, "ai");
       return ok({
         source: "ai",
-        entry: ru && saved && typeof saved === "object"
-          ? { ...saved, ru }
-          : saved,
+        model: usedModel,
+        entry: saved && typeof saved === "object"
+          ? { ...(saved as Entry), ru: clean(entry.ru) || (saved as Entry).ru }
+          : entry,
       });
     }
 
@@ -858,26 +1002,23 @@ Deno.serve(async (req) => {
       const en = clean(body.en);
       const kk = clean(body.kk);
       if (!en) return fail(say("empty", lang));
-      const prompt =
-        `For the English word "${en}" (Kazakh: "${kk}") return ONLY raw JSON with fields:\n` +
-        `  definition_en - short English definition (max 15 words)\n` +
-        `  synonyms      - array of 3-4 English synonyms\n` +
-        `  antonyms      - array of 0-2 English antonyms\n` +
-        `  example_en    - one natural example sentence using the word\n` +
-        `  ipa           - IPA transcription\n` +
-        `  cefr          - one of A0, A1, A2, B1, B2, C1`;
-      return ok({ entry: parseJson(await complete(prompt, 0.25, 700)) });
+      return ok({ entry: parseJson(await complete(enrichPrompt(en, kk), 0.25, 700)) });
     }
 
     // ── suggest: new words at the learner's level ──
+    //
+    // This one must never come back empty. "Жаңа сөз табылмады, кейінірек
+    // көр" was what a learner saw whenever every model was busy — with a
+    // dictionary of hundreds of rows sitting right there, unread.
     if (task === "suggest") {
       const cefr = CEFR.includes(clean(body.cefr)) ? clean(body.cefr) : "A2";
       const topic = clean(body.topic) || "general";
       const count = Math.min(Math.max(Number(body.count) || 8, 1), 20);
-      const known = (Array.isArray(body.exclude) ? body.exclude : [])
+      const excludeList = (Array.isArray(body.exclude) ? body.exclude : [])
         .filter((x: unknown) => typeof x === "string")
-        .slice(0, 40)
-        .join(", ");
+        .map((x: string) => x.trim().toLowerCase())
+        .filter(Boolean);
+      const known = excludeList.slice(0, 60).join(", ");
 
       const prompt =
         `Suggest exactly ${count} English words at CEFR level ${cefr}, topic "${topic}",\n` +
@@ -887,43 +1028,66 @@ Deno.serve(async (req) => {
         `  en, kk, pos, definition_en, synonyms (array of 2-3), example_en, emoji, cefr, topic`;
 
       // trustedOnly, like translate, and for the same reason: every item here
-      // goes through dict_upsert into the dictionary everyone shares. Allowing
-      // the free models back in was tried and measured — they answered
-      // "hotel" with "гостиница" (Russian, not Kazakh), "airport" with the
-      // misspelled "ауэжай", and explained "window" as "ереже". A learner
-      // seeing "AI лимиті бітті" has lost one tap; a learner taught that
-      // "қонақүй" is "гостиница" has been taught the wrong thing, and so has
-      // everyone who looks that word up afterwards.
-      const list = parseJson(await complete(prompt, 0.75, 2048, true));
-      if (!Array.isArray(list)) return fail(say("noList", lang));
+      // goes through dict_upsert into the dictionary everyone shares. The
+      // free models answered "hotel" with "гостиница" and "airport" with the
+      // misspelled "ауэжай".
+      let list: unknown = null;
+      let note = "";
+      try {
+        list = parseJson(await complete(prompt, 0.75, 2048, true));
+      } catch (e) {
+        note = e instanceof Error ? e.message : String(e);
+      }
 
       const saved: unknown[] = [];
-      for (const it of list.slice(0, count)) {
-        const en = clean(it?.en), kk = clean(it?.kk);
-        if (!en || !kk) continue;
-        const { data } = await supabase.rpc("dict_upsert", {
-          p_en: en,
-          p_kk: kk,
-          p_pos: clean(it.pos) || null,
-          p_definition_en: clean(it.definition_en) || null,
-          p_synonyms: arr(it.synonyms),
-          p_antonyms: arr(it.antonyms),
-          p_example_en: clean(it.example_en) || null,
-          p_example_kk: null,
-          p_ipa: null,
-          p_emoji: clean(it.emoji) || null,
-          p_cefr: CEFR.includes(clean(it.cefr)) ? clean(it.cefr) : cefr,
-          p_topic: clean(it.topic) || topic,
-          p_source: "ai",
-        });
-        if (data) saved.push(data);
+      const takenEn = new Set(excludeList);
+      if (Array.isArray(list)) {
+        for (const it of (list as Entry[]).slice(0, count)) {
+          const en = clean(it?.en), kk = clean(it?.kk);
+          if (!en || !kk) continue;
+          if (takenEn.has(en.toLowerCase())) continue;
+          // The same gate as translate: a suggestion is written to the shared
+          // dictionary too, so it gets the same scrutiny.
+          if (gate(kk, en, "en") !== null) continue;
+          takenEn.add(en.toLowerCase());
+          const row = await saveEntry(admin, it, "ai");
+          if (row) saved.push(row);
+          else saved.push({ ...it, synonyms: arr(it.synonyms), source: "ai" });
+        }
       }
-      return ok({ entries: saved });
+
+      // The floor. Whatever the models did, the dictionary already holds
+      // words at this level that this learner has never seen, and reading
+      // them costs one query and no quota.
+      if (saved.length < count) {
+        try {
+          const { data: pool } = await supabase.rpc("dict_discover", {
+            p_cefr: cefr,
+            p_topic: topic,
+            p_exclude: Array.from(takenEn),
+            p_limit: count - saved.length,
+          });
+          if (Array.isArray(pool)) {
+            for (const row of pool as Entry[]) {
+              if (takenEn.has(clean(row.en).toLowerCase())) continue;
+              takenEn.add(clean(row.en).toLowerCase());
+              saved.push(row);
+            }
+          }
+        } catch (e) {
+          note = note || String(e);
+        }
+      }
+
+      if (saved.length === 0 && note) {
+        if (note.includes(NO_KEY_MSG)) return fail(say("noKey", lang), 503);
+        if (note.includes(RATE_MSG)) return fail(say("rate", lang), 429);
+        return fail(note, 429);
+      }
+      return ok({ entries: saved, note: note || undefined });
     }
 
     // ── chat: one turn of a role-play conversation ──
-    // The app has a scripted tutor to fall back on, but it repeats itself.
-    // With this task the reply actually answers what the learner just wrote.
     if (task === "chat") {
       const message = clean(body.message);
       if (!message) return fail(say("empty", lang));
@@ -947,9 +1111,6 @@ Deno.serve(async (req) => {
         `  - always end with a simple question so they can keep talking\n` +
         `  - no markdown, no quotes, no translation, no explanation`;
 
-      // 300 tokens sounded generous for "1-2 short sentences" but some free
-      // models were cutting replies off mid-word well before that — a bigger
-      // ceiling stops the truncation without changing how long a reply is.
       return ok({ text: (await complete(prompt, 0.7, 700)).trim() });
     }
 
@@ -963,8 +1124,6 @@ Deno.serve(async (req) => {
         `Write in ${LANG_NAME[learnerLang]}, warm and simple, 3-5 short sentences.\n` +
         `Cover: what it means, when to use it, one common mistake, and one memory hook.\n` +
         `Plain text only, no markdown.`;
-      // Same headroom fix as chat: 800 tokens was cutting a 3-5 sentence
-      // explanation off mid-word on some providers well before the limit.
       return ok({ text: await complete(prompt, 0.5, 1400) });
     }
 

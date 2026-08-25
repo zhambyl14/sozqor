@@ -24,6 +24,7 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import 'dictionary_editor_screen.dart';
 import 'event_editor_screen.dart';
+import 'pack_editor_screen.dart';
 import 'shop_item_editor_screen.dart';
 import 'translation_review_screen.dart';
 import 'tournament_editor_screen.dart';
@@ -164,6 +165,18 @@ class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
             chevron: true,
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => const TranslationReviewScreen()))),
+          // The count on a pack card has been count(*) since 5.0, so it
+          // stopped lying — but nothing let anybody make it true. Six packs
+          // holding 14, 12, 7, 6, 4 and 0 words against a dictionary of three
+          // hundred is what this row is for.
+          SqTile(
+            leading: const SqTintBox(PhosphorIconsFill.stack,
+              tint: AppColors.green, size: 34),
+            title: tr('Топтама сөздері'),
+            subtitle: tr('Топтамаға сөз қосу, толтыру'),
+            chevron: true,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PackEditorScreen()))),
         ]),
         const SizedBox(height: 18),
 

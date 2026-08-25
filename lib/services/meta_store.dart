@@ -59,6 +59,14 @@ class MetaState {
   final Map<String, int> packs;
   /// Highest word-path node the learner has cleared.
   final int storyNode;
+  /// Branch decisions taken in the story, kept for good.
+  ///
+  /// The whole point of a branch is that chapter five knows what happened in
+  /// chapter two. That is a different screen and usually a different day, so a
+  /// flag that lived only as long as the chapter screen was a consequence that
+  /// could never actually land. Only ever added to; sign-out drops the lot
+  /// with everything else in here.
+  final Set<String> storyFlags;
   /// XP spent in the shop — subtracted from the profile total when pricing.
   final int spent;
 
@@ -73,6 +81,7 @@ class MetaState {
     this.frame = '',
     this.packs = const {},
     this.storyNode = 0,
+    this.storyFlags = const {},
     this.spent = 0,
   });
 
@@ -103,6 +112,7 @@ class MetaState {
     String? frame,
     Map<String, int>? packs,
     int? storyNode,
+    Set<String>? storyFlags,
     int? spent,
   }) => MetaState(
     chestDay:    chestDay    ?? this.chestDay,
@@ -115,6 +125,7 @@ class MetaState {
     frame:       frame       ?? this.frame,
     packs:       packs       ?? this.packs,
     storyNode:   storyNode   ?? this.storyNode,
+    storyFlags:  storyFlags  ?? this.storyFlags,
     spent:       spent       ?? this.spent,
   );
 
@@ -129,6 +140,7 @@ class MetaState {
     'frame': frame,
     'packs': packs,
     'storyNode': storyNode,
+    'storyFlags': storyFlags.toList(),
     'spent': spent,
   };
 
@@ -146,6 +158,8 @@ class MetaState {
     packs: ((m['packs'] as Map?) ?? const {}).map(
         (k, v) => MapEntry(k.toString(), (v as num).toInt())),
     storyNode: (m['storyNode'] as num?)?.toInt() ?? 0,
+    storyFlags: ((m['storyFlags'] as List?) ?? const [])
+        .map((e) => e.toString()).toSet(),
     spent:     (m['spent'] as num?)?.toInt() ?? 0,
   );
 }
@@ -173,16 +187,51 @@ class MetaStore {
   Future<void> save(MetaState state) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key, jsonEncode(state.toJson()));
+      // Story flags are merged in rather than overwritten. Everything else in
+      // here is written by the one controller that holds the live state, but a
+      // branch choice is written the instant the learner taps it — so a later
+      // save from a controller that was built before that tap would quietly
+      // roll the choice back. Flags are only ever added (sign-out drops the
+      // whole key), which makes a union the entire rule.
+      final merged = state.copyWith(
+          storyFlags: {..._storedFlags(prefs), ...state.storyFlags});
+      await prefs.setString(_key, jsonEncode(merged.toJson()));
     } catch (_) {
       // a device that cannot persist still gets a working session
     }
   }
 
+  Set<String> _storedFlags(SharedPreferences prefs) {
+    try {
+      final raw = prefs.getString(_key);
+      if (raw == null || raw.isEmpty) return const {};
+      final m = jsonDecode(raw) as Map;
+      return ((m['storyFlags'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toSet();
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Records a branch the learner took, and hands back everything remembered
+  /// so far.
+  ///
+  /// Written the moment the choice is made rather than when the chapter ends,
+  /// because a learner who closes the app after choosing still chose.
+  Future<Set<String>> rememberStoryFlag(String flag) async {
+    final current = await load();
+    if (current.storyFlags.contains(flag)) return current.storyFlags;
+    final next = current.copyWith(storyFlags: {...current.storyFlags, flag});
+    await save(next);
+    return next.storyFlags;
+  }
+
   /// Wipes the meta-game on sign-out.
   ///
   /// Everything in here is per-person — chest streak, freezes, lives, mission
-  /// claims, owned cosmetics, the worn frame, pack progress, story node — but
+  /// claims, owned cosmetics, the worn frame, pack progress, story node and
+  /// the branches taken in it — but
   /// it is stored per-device under one key with no account in it. Signing out
   /// and into a different account used to inherit all of it, which is a large
   /// part of why logging out looked like it had not worked (EN-47).

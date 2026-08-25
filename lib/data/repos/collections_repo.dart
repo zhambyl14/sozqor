@@ -68,6 +68,25 @@ class CollectionsRepo {
     ];
   });
 
+  /// The whole pack, not the first page of it.
+  ///
+  /// `pack_words` caps a page at 100 rows on the server, so anything that
+  /// needs the real set — building a round, or marking which dictionary rows
+  /// are already in — has to walk the pages. Callers used to ask for 100 and
+  /// treat that as "everything", which was the same shape of lie this whole
+  /// feature exists to end: once a pack passes a hundred words, the round is
+  /// quietly drawn from the first hundred only.
+  Future<List<DictEntry>> allWords(int packId, {int max = 600}) async {
+    const page = 100;
+    final out = <DictEntry>[];
+    while (out.length < max) {
+      final chunk = await words(packId, limit: page, offset: out.length);
+      out.addAll(chunk);
+      if (chunk.length < page) break;
+    }
+    return out;
+  }
+
   // ── The learner's own (EN-34) ──────────────────────────
   Future<int> create({
     required String title,
@@ -124,4 +143,90 @@ class CollectionsRepo {
       _guard(() async => ((await supa.rpc('admin_pack_remove_word', params: {
             'p_pack': packId, 'p_dictionary_id': dictionaryId,
           }) ?? 0) as num).toInt());
+
+  /// Creates or renames an official pack.
+  ///
+  /// `is_active` is not a parameter here on purpose: `pack_catalogue` only
+  /// returns active packs, and this repository is the only way the console
+  /// lists them — a pack switched off from the editor would vanish from the
+  /// one screen that could switch it back on.
+  Future<int> savePack({
+    int? id,
+    required String titleKk,
+    String titleRu = '',
+    String subtitleKk = '',
+    String subtitleRu = '',
+    String emoji = '📚',
+    String colour = '#7C5CFF',
+    String? topic,
+    List<String> levels = const [],
+    int sort = 0,
+  }) => _guard(() async {
+    final slug = await _freeSlug(_slugify(titleKk), exceptId: id);
+    return ((await supa.rpc('admin_upsert_pack', params: {
+      'p_id': id,
+      'p_slug': slug,
+      'p_title_kk': titleKk.trim(),
+      'p_title_ru': titleRu.trim(),
+      'p_subtitle_kk': subtitleKk.trim(),
+      'p_subtitle_ru': subtitleRu.trim(),
+      'p_emoji': emoji,
+      'p_colour': colour,
+      'p_topic': topic,
+      'p_levels': levels,
+      'p_sort': sort,
+      'p_is_active': true,
+    }) ?? 0) as num).toInt();
+  });
+
+  /// `word_packs.slug` is unique and nothing on screen ever shows it, so it is
+  /// derived rather than typed — one less field that can fail a save.
+  static String _slugify(String title) {
+    final buf = StringBuffer();
+    for (final ch in title.toLowerCase().split('')) {
+      final mapped = _packTranslit[ch];
+      if (mapped != null) {
+        buf.write(mapped);
+      } else if (RegExp(r'[a-z0-9]').hasMatch(ch)) {
+        buf.write(ch);
+      } else {
+        buf.write('-');
+      }
+    }
+    var slug = buf
+        .toString()
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    if (slug.length > 40) slug = slug.substring(0, 40);
+    slug = slug.replaceAll(RegExp(r'-+$'), '');
+    return slug.isEmpty ? 'pack' : slug;
+  }
+
+  /// The first free variant of [base]. Two packs may legitimately be called
+  /// the same thing, and a unique-violation from Postgres is not an answer a
+  /// moderator can act on.
+  Future<String> _freeSlug(String base, {int? exceptId}) async {
+    final rows =
+        await supa.from('word_packs').select('id, slug').like('slug', '$base%');
+    final taken = <String>{
+      for (final r in rows as List)
+        if (((r as Map)['id'] as num?)?.toInt() != exceptId)
+          ((r)['slug'] ?? '').toString(),
+    };
+    if (!taken.contains(base)) return base;
+    for (var i = 2; i < 500; i++) {
+      if (!taken.contains('$base-$i')) return '$base-$i';
+    }
+    return '$base-${DateTime.now().millisecondsSinceEpoch}';
+  }
 }
+
+/// Kazakh and Russian Cyrillic to latin, for [CollectionsRepo._slugify].
+const Map<String, String> _packTranslit = {
+  'а': 'a', 'ә': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'ғ': 'g', 'д': 'd',
+  'е': 'e', 'ё': 'yo', 'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'i', 'к': 'k',
+  'қ': 'q', 'л': 'l', 'м': 'm', 'н': 'n', 'ң': 'ng', 'о': 'o', 'ө': 'o',
+  'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ұ': 'u', 'ү': 'u',
+  'ф': 'f', 'х': 'h', 'һ': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+  'ъ': '', 'ы': 'y', 'і': 'i', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+};

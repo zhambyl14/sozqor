@@ -28,6 +28,7 @@ import 'data/repos/collections_repo.dart';
 import 'data/repos/cosmetics_repo.dart';
 import 'data/repos/dictionary_repo.dart';
 import 'data/repos/events_repo.dart';
+import 'data/repos/league_repo.dart';
 import 'data/repos/profile_repo.dart';
 import 'data/repos/teams_repo.dart';
 import 'data/repos/words_repo.dart';
@@ -759,3 +760,19 @@ void refreshAll(WidgetRef ref) {
   ref.invalidate(leaderboardProvider);
   ref.invalidate(unlockedAchievementsProvider);
 }
+
+// ── League ─────────────────────────────────────────────────
+/// The league is a rating threshold rather than a weekly top-ten cut, and the
+/// thresholds live in the database — so the league screen reads both halves of
+/// itself through one repo: where you stand on the ladder, and who else is on
+/// your rung.
+final leagueRepoProvider = Provider((_) => LeagueRepo());
+
+/// This learner's band, their rating, and the number the next band opens at.
+/// Null while the server still lacks league_progress().
+final leagueProgressProvider = FutureProvider<LeagueProgress?>(
+    (ref) => ref.watch(leagueRepoProvider).progress());
+
+/// Everybody on this learner's rung, ordered by rating.
+final leagueStandingsProvider = FutureProvider<List<LeagueRow>>(
+    (ref) => ref.watch(leagueRepoProvider).standings());

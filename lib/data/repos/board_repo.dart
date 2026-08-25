@@ -137,9 +137,13 @@ class BoardRepo {
   Future<List<BoardRow>> friends() async =>
       _rows(await supa.rpc('my_friends'));
 
-  /// Finds people by handle (EN-16). The server requires two characters and
-  /// skips guest accounts, so this can no longer be used to page through
-  /// everybody who has ever installed the app.
+  /// Finds one person by their whole handle, or by an account id pasted from
+  /// a share link (EN-16 / v5_friend_search.sql).
+  ///
+  /// Not a directory search: the server matches `lower(username) = lower(q)`
+  /// on three characters or more and skips guest accounts, so typing two
+  /// letters no longer returns twenty strangers ranked by XP. The screen has
+  /// to say so, because "logins ish" is a promise the server stopped keeping.
   Future<List<BoardRow>> searchUsers(String query) async =>
       _rows(await supa.rpc('search_users',
           params: {'p_query': query, 'p_limit': 20}));
@@ -178,6 +182,47 @@ class BoardRepo {
   Future<List<BoardRow>> sentRequests() async =>
       _rows(await supa.rpc('my_sent_requests'));
 
+  // ── Battle invitations (v5_match_consent.sql) ──────────
+  /// What is ringing right now. The server expires stale rows inside the same
+  /// call, so an invitation that has run out of its fifteen seconds is never
+  /// returned — and the person who sent it stops waiting at the same moment.
+  ///
+  /// Everything the banner needs is in the row: asking who the caller is with
+  /// a second request would spend a third of the countdown on a round trip.
+  Future<List<BattleInvite>> battleInvites() async {
+    final res = await supa.rpc('my_battle_invites');
+    return (res as List? ?? const [])
+        .map((r) => BattleInvite.fromMap(Map<String, dynamic>.from(r as Map)))
+        .toList();
+  }
+
+  /// Answers one, and hands back the battle row it produced: 'active' when it
+  /// was accepted in time, 'declined' when it was turned down or the fifteen
+  /// seconds ran out while the card was on screen. The caller decides what to
+  /// open from that status rather than assuming the accept worked.
+  ///
+  /// [lang] is the answering player's own interface language — each side
+  /// answers the shared question list in the language they read the app in.
+  Future<Battle> respondBattleInvite(
+    String battleId, {
+    required bool accept,
+    String lang = 'kk',
+  }) async {
+    final row = await supa.rpc('respond_battle_invite', params: {
+      'p_battle': battleId, 'p_accept': accept, 'p_lang': lang,
+    });
+    return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+  }
+
+  /// Housekeeping the client is allowed to run: it is what stops an invite
+  /// nobody answered from ringing forever on the *inviter's* screen. Best
+  /// effort — the next [battleInvites] call does it again anyway.
+  Future<void> expireBattleInvites() async {
+    try {
+      await supa.rpc('expire_battle_invites');
+    } catch (_) {/* housekeeping is never worth an error on screen */}
+  }
+
   Future<void> removeFriend(String userId) async {
     final uid = currentUid;
     if (uid == null) return;
@@ -198,4 +243,42 @@ class BoardRepo {
         (r['user_id'] ?? '').toString(): (r['xp'] ?? 0) as int,
     };
   }
+}
+
+/// One battle invitation that is ringing on this device right now.
+///
+/// It lives here rather than in `models/battle.dart` because it is not a
+/// battle: it is a fifteen-second question about one, and the only thing that
+/// ever reads it is the banner [my_battle_invites] feeds.
+class BattleInvite {
+  final String battleId, fromUser, username, displayName, avatarEmoji, cefr;
+  final int elo;
+
+  /// How long the invitation still has when the row was read. The banner
+  /// counts down from this locally instead of asking the server every second.
+  final int secondsLeft;
+
+  const BattleInvite({
+    required this.battleId,
+    required this.fromUser,
+    required this.username,
+    required this.displayName,
+    required this.avatarEmoji,
+    required this.cefr,
+    required this.elo,
+    required this.secondsLeft,
+  });
+
+  factory BattleInvite.fromMap(Map<String, dynamic> m) => BattleInvite(
+    battleId:    (m['battle_id'] ?? '').toString(),
+    fromUser:    (m['from_user'] ?? '').toString(),
+    username:    (m['username'] ?? '').toString(),
+    displayName: (m['display_name'] ?? '').toString(),
+    avatarEmoji: (m['avatar_emoji'] ?? '🦊').toString(),
+    cefr:        (m['cefr'] ?? 'A1').toString(),
+    elo:         ((m['elo'] ?? 1000) as num).toInt(),
+    secondsLeft: ((m['seconds_left'] ?? 0) as num).toInt(),
+  );
+
+  String get name => displayName.trim().isEmpty ? username : displayName.trim();
 }

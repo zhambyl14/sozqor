@@ -19,16 +19,18 @@
 //   429 "You exceeded your current quota".
 //
 // So Gemini is not one option among several — it is the only provider on this
-// project that answers Kazakh at all. The previous order (FreeRouter, then
-// OpenAI, then Gemini) spent 3-20 seconds on a gateway returning a 502 HTML
-// page and another request on a spent OpenAI key BEFORE reaching the one
-// provider that works. That, not the model, is why a lookup took 12-22
-// seconds. Gemini first cuts the same lookup to roughly two.
+// project that answers Kazakh at all.
 //
-// The others are kept as fallbacks because a key can be topped up without
-// anybody redeploying this file, and because Gemini's free tier answers 429
-// under load. They are ordered by how fast they get OUT OF THE WAY when they
-// cannot help, which is why a spent OpenAI key is tried before FreeRouter.
+// OpenAI and FreeRouter used to be in this chain and are gone. Keeping a
+// provider that has never once answered is not a safety net, it is latency:
+// OpenAI is a PAID key with no credit on it, and FreeRouter returned a 502
+// HTML page for every word probed. Both were removed rather than reordered,
+// and that alone is most of the difference between a 22-second lookup and a
+// two-second one.
+//
+// What is left is Gemini, and — for the tasks whose output is never written
+// to the shared dictionary (chat, explain, raw) — the two OpenRouter models
+// that actually respond. Everything the dictionary keeps comes from Gemini.
 //
 // ── Why two models answer every new word ───────────────────
 //
@@ -49,10 +51,11 @@
 //
 // ── Function secrets ───────────────────────────────────────
 //   GEMINI_API_KEY      the one that matters (never commit it)
-//   OPENAI_API_KEY      (+ optional OPENAI_MODEL, default gpt-4o-mini)
-//   OPENROUTER_API_KEY
-//   FREEROUTER_API_KEY
+//   OPENROUTER_API_KEY  optional; chat and explain only
 //   SUPABASE_SERVICE_ROLE_KEY   injected by Supabase; required, see below
+//
+// The OpenAI and FreeRouter secrets are no longer read at all. They can be
+// deleted from the function's settings.
 //
 // `dict_upsert` is revoked from `authenticated` (v5_translation_review.sql),
 // so writing to the dictionary under the caller's own token now fails. Every
@@ -68,12 +71,8 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const FREEROUTER_KEY = Deno.env.get("FREEROUTER_API_KEY") ?? "";
-const FREEROUTER_URL = "https://freerouter.eu.cc/v1/chat/completions";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 // 2.5-flash first: on the probe it was both the most accurate and the fastest
@@ -91,29 +90,21 @@ const GEMINI_MODELS = [
 // MAX_TOKENS with an empty candidate. These floors are what the probe needed.
 const GEMINI_MIN_TOKENS = 2048;
 
-const FREEROUTER_MODELS = ["glm-5.2", "kiro-auto"];
-
-// Priced at zero on /api/v1/models today. Half of them 404 with "unavailable
-// for free" and the rest 429, so they are a last resort, not a tier.
+// The only two of the free OpenRouter models that answered at all when
+// probed; the rest 404 with "unavailable for free". Never used for anything
+// that reaches the dictionary — see `trustedOnly`.
 const FREE_MODELS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
-  "z-ai/glm-5.2:free",
-  "google/gemma-4-31b-it:free",
   "nvidia/nemotron-3-nano-30b-a3b:free",
 ];
 
 // A learner is waiting behind every one of these. 45 seconds was long enough
 // for five sequential providers to add up to three minutes.
 const LLM_TIMEOUT = 7_000;
-// FreeRouter answered 502 or empty on every word of the probe, so it is a
-// fallback in name only. Three seconds is what it gets before the chain
-// stops waiting for it.
-const FREEROUTER_TIMEOUT = 3_000;
 const FREE_TIMEOUT = 4_000;
 
-// The whole of a translate, end to end. Walking six models at seven seconds
-// each is 40 seconds a learner spends on one word; past this the answer is
-// whatever the keyless services or the stored row can give.
+// The whole of a translate, end to end. Past this the answer is whatever the
+// keyless services or the stored row can give.
 const TRANSLATE_DEADLINE = 9_000;
 const BASIC_DEADLINE = 5_000;
 const ARBITER_DEADLINE = 5_000;
@@ -185,8 +176,7 @@ const sceneEn = (kk: string) => SCENE_EN[kk] ?? "a friendly everyday situation";
 
 // ── LLM transports ─────────────────────────────────────────
 
-/// Everything except Gemini speaks the OpenAI chat-completions shape, so one
-/// function covers OpenAI, OpenRouter and FreeRouter.
+/// OpenRouter speaks the OpenAI chat-completions shape.
 async function chatCompletions(
   url: string,
   key: string,
@@ -210,9 +200,7 @@ async function chatCompletions(
       temperature,
       max_tokens: maxTokens,
     }),
-    signal: AbortSignal.timeout(
-      label === "freerouter" ? FREEROUTER_TIMEOUT : LLM_TIMEOUT,
-    ),
+    signal: AbortSignal.timeout(LLM_TIMEOUT),
   });
   if (!res.ok) {
     // The status alone cannot tell "no credit left" from "too fast"; both are
@@ -226,20 +214,11 @@ async function chatCompletions(
   return text as string;
 }
 
-const callOpenAI = (p: string, t: number, m: number) =>
-  chatCompletions(
-    "https://api.openai.com/v1/chat/completions",
-    OPENAI_KEY, OPENAI_MODEL, p, t, m, "openai",
-  );
-
 const callOpenRouter = (model: string, p: string, t: number, m: number) =>
   chatCompletions(
     "https://openrouter.ai/api/v1/chat/completions",
     OPENROUTER_KEY, model, p, t, m, "openrouter",
   );
-
-const callFreeRouter = (model: string, p: string, t: number, m: number) =>
-  chatCompletions(FREEROUTER_URL, FREEROUTER_KEY, model, p, t, m, "freerouter");
 
 async function callGemini(
   model: string,
@@ -278,7 +257,7 @@ async function callGemini(
 }
 
 /// One attempt at one model, named so a caller can pick a SECOND opinion from
-/// a different vendor rather than the same one twice.
+/// a different model rather than the same one twice.
 type Attempt = { id: string; run: () => Promise<string> };
 
 /// Every provider this project can reach, best first. `trustedOnly` drops the
@@ -295,17 +274,6 @@ function chain(
   if (GEMINI_KEY) {
     for (const m of GEMINI_MODELS) {
       out.push({ id: `gemini/${m}`, run: () => callGemini(m, prompt, temperature, maxTokens) });
-    }
-  }
-  // OpenAI before FreeRouter on purpose: a spent OpenAI key answers 429 in
-  // 150ms, while FreeRouter takes seconds to fail. Order the fallbacks by how
-  // fast they get out of the way, not by how much they cost.
-  if (OPENAI_KEY) {
-    out.push({ id: `openai/${OPENAI_MODEL}`, run: () => callOpenAI(prompt, temperature, maxTokens) });
-  }
-  if (FREEROUTER_KEY) {
-    for (const m of FREEROUTER_MODELS) {
-      out.push({ id: `freerouter/${m}`, run: () => callFreeRouter(m, prompt, temperature, maxTokens) });
     }
   }
   if (OPENROUTER_KEY && !trustedOnly) {
@@ -329,10 +297,10 @@ const cooldownUntil = new Map<string, number>();
 const QUOTA_COOLDOWN = 90_000;
 const FLAKY_COOLDOWN = 60_000;
 
-/// A gateway that answers 502 or empty is not going to answer the next
-/// question either. Gemini and OpenAI get no such benefit of the doubt
-/// withdrawn on a one-off error -- only on an explicit quota refusal.
-const FLAKY = new Set(["freerouter", "openrouter"]);
+/// A free model that answers 404 or empty will answer the same way in a
+/// second. Gemini is not treated that way -- only an explicit quota refusal
+/// puts it on the bench, because a one-off 503 there is genuinely transient.
+const FLAKY = new Set(["openrouter"]);
 
 async function completeFrom(
   attempts: Attempt[],
@@ -450,7 +418,19 @@ function tidy(out: string, src: string, to: string): string {
   return s;
 }
 
-/// Races the providers and takes the first answer that survives the gate.
+/// Asks all three at once and returns an answer only if TWO OF THEM AGREE.
+///
+/// Taking the first one that survived the gate is what put "butterfly" in
+/// front of a learner who typed "бауырсақ": one of these services answered
+/// with a word that has nothing to do with the term, and nothing structural
+/// about "butterfly" says it is wrong. These are machine-translation
+/// endpoints being asked about Kazakh, which is the language they are worst
+/// at — a single one of them is not evidence.
+///
+/// Two independent services landing on the same word is. When they do not,
+/// the honest answer is that there is no answer: a gap in the dictionary is
+/// recoverable, a confident wrong word is not.
+///
 /// `from` must be a real language code — auto-detection is done here rather
 /// than by the provider, because the two that support it disagree about
 /// Kazakh.
@@ -461,15 +441,28 @@ async function freeTranslate(
 ): Promise<string> {
   const one = async (p: (t: string, f: string, x: string) => Promise<string>) => {
     const out = tidy(await p(text, from, to), text, to);
-    if (!out) throw new Error("empty");
-    if (gate(text, out, to as "en" | "kk" | "ru") !== null) throw new Error("gated");
+    if (!out) return "";
+    if (gate(text, out, to as "en" | "kk" | "ru") !== null) return "";
     return out;
   };
-  try {
-    return await Promise.any([viaGoogle, viaMyMemory, viaLingva].map(one));
-  } catch {
-    return "";
+
+  const answers = (await Promise.all(
+    [viaGoogle, viaMyMemory, viaLingva].map((p) => one(p).catch(() => "")),
+  )).filter(Boolean);
+  if (answers.length < 2) return "";
+
+  const flat = (x: string) => x.toLowerCase().replace(/[^\p{L}]/gu, "");
+  for (let i = 0; i < answers.length; i++) {
+    for (let j = i + 1; j < answers.length; j++) {
+      // 0.85, not equality: these services differ on articles and plurals
+      // ("a book" / "book", "кітаптар" / "кітап") without disagreeing.
+      if (similarity(flat(answers[i]), flat(answers[j])) >= 0.85) {
+        // The shorter of the two is the headword rather than the phrase.
+        return answers[i].length <= answers[j].length ? answers[i] : answers[j];
+      }
+    }
   }
+  return "";
 }
 
 const hasCyrillic = (s: string) => /[Ѐ-ӿ]/.test(s);
@@ -781,8 +774,8 @@ const translatePrompt = (term: string) =>
   `Return ONLY a raw JSON object, no markdown, with exactly these fields:\n` +
   TRANSLATE_FIELDS;
 
-/// The second opinion. A different vendor where one is available, asked the
-/// narrow question so its answer is cheap and hard to misread.
+/// The second opinion, asked as a narrow question so its answer is cheap and
+/// hard to misread.
 const secondPrompt = (term: string) =>
   `What does the word "${term}" mean in English?\n` +
   `Answer with the meaning, never with the word rewritten in Latin letters.\n` +
@@ -934,9 +927,6 @@ Deno.serve(async (req) => {
       return ok({
         gemini: GEMINI_KEY.length > 0,
         gemini_models: GEMINI_KEY ? GEMINI_MODELS : null,
-        freerouter: FREEROUTER_KEY.length > 0,
-        openai: OPENAI_KEY.length > 0,
-        openai_model: OPENAI_KEY ? OPENAI_MODEL : null,
         openrouter: OPENROUTER_KEY.length > 0,
         service_key: SERVICE_KEY.length > 0,
         order: chain("", 0, 0, true).map((a) => a.id),

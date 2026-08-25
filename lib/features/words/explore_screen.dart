@@ -32,6 +32,11 @@ class ExploreScreen extends ConsumerStatefulWidget {
 class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   final _search = TextEditingController();
 
+  /// This screen is pushed as its own route, so unlike the word bank — which
+  /// borrows the tab's PrimaryScrollController — it owns the controller it
+  /// watches for the bottom of the list.
+  final _scroll = ScrollController();
+
   List<DictEntry> _entries = const [];
 
   /// Keyed by the English word, so a pick survives changing the level or
@@ -49,6 +54,17 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   /// list is not a complete answer to "do I own this?".
   Set<String> _owned = const {};
 
+  /// Whether [_owned] is an answer or a shrug. An empty set used to stand for
+  /// both, so a failed fetch read as "owns nothing", every row drew as new,
+  /// and the learner was offered words already in their bank with no badge to
+  /// warn them. Unknown is retried on the next page instead.
+  bool _ownedKnown = false;
+
+  /// `dict_discover_count`: how many words at this level the learner has never
+  /// added. Null means the server did not answer — which is never the same as
+  /// zero, and is the difference between "you have taken them all" and a lie.
+  int? _remaining;
+
   /// Rows pulled from the server so far, counting the ones filtered out for
   /// being already owned. This is the search offset; `_entries.length` is not,
   /// or every page would re-fetch the words it just hid.
@@ -63,11 +79,31 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
     final profile = ref.read(myProfileProvider).valueOrNull;
     _level = profile?.cefrLevel ?? 'A1';
     _levelFromFallback = profile == null;
+    _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
-  void dispose() { _search.dispose(); super.dispose(); }
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    _search.dispose();
+    super.dispose();
+  }
+
+  static String _norm(String s) => s.toLowerCase().trim();
+
+  /// EN-37 / KK-9: the catalogue pages twenty at a time and the only way to
+  /// reach page two was a button below the last row, so most learners never
+  /// saw one. This asks for the next page while the bottom is still 600px
+  /// away, which is far enough that the list never visibly stalls.
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final p = _scroll.position;
+    if (p.pixels < p.maxScrollExtent - 600) return;
+    if (_loading || _loadingMore || _exhausted) return;
+    _loadMore();
+  }
 
   /// Starts the list over for the current level / topic / query.
   Future<void> _load() async {
@@ -77,16 +113,35 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
       _entries = const [];
       _fetched = 0;
       _exhausted = false;
+      _remaining = null;
     });
+    await _refreshOwned();
+    await _fetchPage();
+    // The count is only worth a round trip when the screen is about to make a
+    // claim that depends on it: an empty list, or a list that ended.
+    if (_entries.isEmpty || _exhausted) await _countRemaining();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  /// The learner's own words, so a row can say 'Бар' instead of posing as new.
+  Future<void> _refreshOwned() async {
     try {
       _owned = await ref.read(wordsRepoProvider).ownedEnglish();
+      _ownedKnown = true;
     } catch (_) {
-      // Not fatal: without it the list shows owned words with a "Бар" badge
-      // instead of hiding them, which is the old behaviour.
       _owned = const {};
+      _ownedKnown = false;
     }
-    await _fetchPage();
-    if (mounted) setState(() => _loading = false);
+  }
+
+  /// Asks how many words at this level the learner has never added, before
+  /// the screen says there are none. A null answer stays null: "the server
+  /// did not tell me" must never be rendered as "there is nothing left".
+  Future<void> _countRemaining() async {
+    final left = await ref
+        .read(dictRepoProvider)
+        .discoverCount(cefr: _level, topic: _topic);
+    if (mounted) setState(() => _remaining = left);
   }
 
   /// Pulls one page and appends whatever survives the owned filter (EN-39).
@@ -96,29 +151,52 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   /// bound — until something lands or the server runs out.
   Future<void> _fetchPage() async {
     if (_exhausted) return;
+    // A failed owned fetch poisons every row it touches, so it is retried
+    // here rather than left wrong for the rest of the session.
+    if (!_ownedKnown) await _refreshOwned();
+
+    final query = _search.text.trim();
+    final repo = ref.read(dictRepoProvider);
     var attempts = 0;
     try {
       while (attempts < 5 && !_exhausted) {
         attempts++;
-        final page = await ref.read(dictRepoProvider).search(
-          query: _search.text.trim(),
-          cefr: [_level],
-          topic: _topic,
-          limit: kWordPageSize,
-          offset: _fetched,
-        );
+        // With no query, dict_discover answers the question this screen is
+        // actually asking — words at this level the learner has never added —
+        // and it subtracts the whole `words` table, not the screenful the
+        // client can see. dict_search stays for a typed query, which discover
+        // has no parameter for.
+        final page = query.isEmpty
+            ? await repo.discover(
+                cefr: _level,
+                topic: _topic,
+                limit: kWordPageSize,
+                offset: _fetched)
+            : await repo.search(
+                query: query,
+                cefr: [_level],
+                topic: _topic,
+                limit: kWordPageSize,
+                offset: _fetched);
         _fetched += page.length;
         if (page.length < kWordPageSize) _exhausted = true;
 
-        final known = _entries.map((e) => e.en.toLowerCase().trim()).toSet();
+        final known = _entries.map((e) => _norm(e.en)).toSet();
         final fresh = page
-            .where((e) => !_owned.contains(e.en.toLowerCase().trim()))
-            .where((e) => known.add(e.en.toLowerCase().trim()))
+            // dict_discover reads p_topic 'general' as "any topic at all", so
+            // the Жалпы chip has to be honoured here or picking it lists the
+            // whole level.
+            .where((e) => _topic == null || e.topic == _topic)
+            .where((e) => !_owned.contains(_norm(e.en)))
+            .where((e) => known.add(_norm(e.en)))
             .toList();
 
         if (fresh.isNotEmpty) {
           if (!mounted) return;
-          setState(() => _entries = [..._entries, ...fresh]);
+          setState(() {
+            _entries = [..._entries, ...fresh];
+            _error = null;
+          });
           return;
         }
       }
@@ -128,10 +206,11 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   }
 
   Future<void> _loadMore() async {
-    if (_loadingMore || _exhausted) return;
+    if (_loadingMore || _exhausted || _loading) return;
     setState(() => _loadingMore = true);
     await _fetchPage();
     if (mounted) setState(() => _loadingMore = false);
+    if (_exhausted && mounted) await _countRemaining();
   }
 
   /// Fetches more words for this level+topic and APPENDS them under what is

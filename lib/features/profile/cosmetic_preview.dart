@@ -282,6 +282,315 @@ class CosmeticBanner extends StatelessWidget {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+// Who is wearing it
+// ═══════════════════════════════════════════════════════════
+
+/// Everything one person is wearing, resolved to colours.
+///
+/// [WornCosmetics] carries what the server reports — colours, an emoji, a
+/// title — but not the `data` payload that says how a frame *moves*: the RPC
+/// that reads other people only returns rendered fields. The catalogue is on
+/// the device anyway, so the motion is looked up by frame id here rather than
+/// widening the request.
+class WearerLook {
+  final String name;
+  final String? emoji;
+  final Color? frame, frameSecond, aura, banner;
+  final FrameFx fx;
+  final String? badge, title;
+
+  const WearerLook({
+    required this.name,
+    this.emoji,
+    this.frame,
+    this.frameSecond,
+    this.aura,
+    this.banner,
+    this.fx = FrameFx.none,
+    this.badge,
+    this.title,
+  });
+
+  factory WearerLook.from({
+    required String name,
+    String? emoji,
+    WornCosmetics? worn,
+    Map<String, dynamic>? frameData,
+  }) => WearerLook(
+    name: name,
+    emoji: emoji,
+    frame: sqHexColor(worn?.frameColor),
+    frameSecond: frameData == null ? null : frameSecondOf(frameData),
+    fx: frameData == null ? FrameFx.none : frameFxOf(frameData),
+    aura: sqHexColor(worn?.auraColor),
+    banner: sqHexColor(worn?.bannerColor),
+    badge: worn?.badge,
+    title: worn?.title,
+  );
+
+  /// The colour this person is written in — their title, the band behind
+  /// their head. The frame leads because it is the piece seen first.
+  Color get tint => frame ?? aura ?? banner ?? AppColors.primary;
+
+  bool get wearsSomething =>
+      frame != null || aura != null || banner != null ||
+      badge != null || title != null;
+}
+
+/// The `data` payload of the frame somebody is wearing, found in the
+/// catalogue by id. Null when they wear none or the catalogue has not arrived
+/// yet — both of which simply mean "a still ring".
+Map<String, dynamic>? frameDataOf(String? frameId, List<Cosmetic> catalogue) {
+  if (frameId == null || frameId.isEmpty) return null;
+  for (final c in catalogue) {
+    if (c.id == frameId) return c.data;
+  }
+  return null;
+}
+
+/// One catalogue item, drawn the way it will actually look on the person
+/// looking at it.
+///
+/// The shop used to draw its own flat swatch — a 3-pt ring, a stripe, a disc —
+/// while the profile drew the rich version, so the thing you bought never
+/// looked like the thing you tapped. Everything here goes through the same
+/// widgets the profile uses, on top of what the learner is already wearing:
+/// a frame arrives around *their* avatar, an aura lights *their* face, a
+/// title is written in *their* frame's colour. Trying it on is the whole
+/// argument for buying it.
+class CosmeticShowcase extends StatelessWidget {
+  final Cosmetic item;
+  final WearerLook wearer;
+  final double size;
+
+  const CosmeticShowcase({
+    super.key,
+    required this.item,
+    required this.wearer,
+    this.size = 76,
+  });
+
+  /// The learner's own avatar with one piece swapped for the item on sale.
+  /// Their frame is drawn still even when it animates: on a shelf of sixty
+  /// cards the one thing moving should be the thing being sold.
+  Widget _worn({
+    required double size,
+    Color? aura,
+    String? badge,
+    String? emoji,
+  }) => CosmeticAvatar(
+    name: wearer.name,
+    emoji: emoji ?? wearer.emoji,
+    size: size,
+    frame: wearer.frame,
+    frameSecond: wearer.frameSecond,
+    fx: FrameFx.none,
+    aura: aura ?? wearer.aura,
+    badge: badge ?? wearer.badge);
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    final colour = sqHexColor(item.color);
+
+    switch (item.kind) {
+      case CosmeticKind.frame:
+        return CosmeticAvatar(
+          name: wearer.name,
+          emoji: wearer.emoji,
+          size: size,
+          frame: colour ?? AppColors.muted(d),
+          frameSecond: frameSecondOf(item.data),
+          fx: frameFxOf(item.data),
+          aura: wearer.aura);
+
+      case CosmeticKind.aura:
+        return _worn(size: size * 0.88, aura: colour);
+
+      case CosmeticKind.badge:
+        return _worn(size: size * 0.88, badge: item.emoji ?? '•');
+
+      case CosmeticKind.avatar:
+        return _worn(size: size * 0.9, emoji: item.emoji ?? '🙂');
+
+      case CosmeticKind.title:
+        // A title is text, and text is what it will be. Left to wrap: a card
+        // grows before a name is ever cut in half.
+        return CosmeticTitle(title: item.name, tint: wearer.tint);
+
+      case CosmeticKind.banner:
+        // The same shape the profile hero has — a strip with a head on it —
+        // so the preview and the profile are recognisably one thing.
+        final face = size * 0.46;
+        final strip = size * 0.62;
+        return SizedBox(
+          width: double.infinity,
+          height: size,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                top: 0, left: 0, right: 0,
+                child: CosmeticBanner(
+                  colour: colour ?? AppColors.muted(d),
+                  height: strip,
+                  radius: BorderRadius.circular(14))),
+              Positioned(
+                top: strip - face / 2, left: 0, right: 0,
+                child: Center(child: _worn(size: face))),
+            ],
+          ),
+        );
+    }
+  }
+}
+
+/// A person wearing everything they own — the block both profiles open with.
+///
+/// This is what the shop is for. A cosmetic bought with coins has to be the
+/// first thing anybody sees, on your own page and on the one a stranger opens
+/// from a leaderboard, so both screens draw this same hero: the banner as the
+/// band behind the head, the avatar inside its frame with the frame's real
+/// motion, the aura burning behind it, the badge on its corner and the title
+/// under the name in the frame's colour.
+///
+/// Dark on purpose. Gold, ember and violet rings read as light against ink
+/// and as stickers against white, and this block is the one moment on the
+/// page allowed to win the eye.
+class CosmeticHero extends StatelessWidget {
+  final WearerLook look;
+
+  /// `@username`, or whatever line belongs under the name.
+  final String? handle;
+
+  /// Level, rank, CEFR — whatever the screen wants beside the title.
+  final List<Widget> chips;
+
+  /// Anything the screen adds below the identity, e.g. the level track.
+  final Widget? child;
+
+  final double avatarSize;
+
+  const CosmeticHero({
+    super.key,
+    required this.look,
+    this.handle,
+    this.chips = const [],
+    this.child,
+    this.avatarSize = 96,
+  });
+
+  static const double _band = 84;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.inkBlock(d),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [BoxShadow(
+          color: AppColors.ink.withValues(alpha: d ? 0.55 : 0.30),
+          blurRadius: 28, offset: const Offset(0, 12))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(26),
+        child: Column(
+          children: [
+            SizedBox(
+              // The band, plus the half of the head that hangs off it. Fixed
+              // rather than stacked with negative offsets so the aura's glow
+              // has room to bleed instead of being sliced off.
+              height: _band + avatarSize / 2,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(top: 0, left: 0, right: 0, child: _bandFill()),
+                  Positioned(
+                    top: _band - avatarSize / 2, left: 0, right: 0,
+                    child: Center(
+                      child: CosmeticAvatar(
+                        name: look.name,
+                        emoji: look.emoji,
+                        size: avatarSize,
+                        frame: look.frame,
+                        frameSecond: look.frameSecond,
+                        fx: look.fx,
+                        aura: look.aura,
+                        badge: look.badge),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(look.name,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 21, height: 1.25, fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4, color: Colors.white)),
+                  if (handle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(handle!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12.5, height: 1.3,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.onInk3)),
+                  ],
+                  if (look.title != null) ...[
+                    const SizedBox(height: 9),
+                    // In the frame's colour: the two pieces were bought to be
+                    // worn together, and a title in the app's violet looked
+                    // like something the app handed out.
+                    CosmeticTitle(title: look.title!, tint: look.tint, size: 13),
+                  ],
+                  if (chips.isNotEmpty) ...[
+                    const SizedBox(height: 11),
+                    Wrap(
+                      spacing: 7, runSpacing: 7,
+                      alignment: WrapAlignment.center,
+                      children: chips),
+                  ],
+                  if (child != null) ...[
+                    const SizedBox(height: 16),
+                    child!,
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The banner is exactly what a banner is for: the strip a name sits on.
+  /// Without one the band takes the frame's colour, so even a hero with one
+  /// cosmetic belongs to its owner rather than to the app's violet.
+  Widget _bandFill() => look.banner != null
+      ? CosmeticBanner(
+          colour: look.banner!, height: _band, radius: BorderRadius.zero)
+      : Container(
+          height: _band,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                look.tint.withValues(alpha: 0.50),
+                look.tint.withValues(alpha: 0.05),
+              ]),
+          ),
+        );
+}
+
 /// One player's identity during a battle (EN-43 / KK-6).
 ///
 /// Cosmetics are bought to be seen and the battle screen is the one place two

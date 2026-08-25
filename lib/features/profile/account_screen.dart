@@ -8,6 +8,11 @@
 // Telegram bot that proved the number when the account was made. And because
 // the number IS the login, the screen says what changing it costs before it
 // asks Telegram, not after.
+//
+// Deleting the account for good is here as well, under the same heading: it
+// is the last thing you can do to a login, and keeping it beside the number
+// and the password is what a learner expects — it used to sit in the settings
+// list between an avatar frame and a nickname.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +24,7 @@ import '../../data/repos/account_repo.dart';
 import '../../data/repos/phone_auth_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../../services/push_service.dart';
 import '../auth/guest_gate.dart';
 import '../auth/telegram_verify_screen.dart';
 
@@ -161,6 +167,85 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       displayName: p?.displayName ?? ''), tr('Кіру нөмірі жаңартылды'));
   }
 
+  /// Erasing the account for good (EN-45 / KK-10).
+  ///
+  /// Two gates, not one: a plain confirm, then typing the word. Everything
+  /// this removes — every saved word, the streak, the rating, the league
+  /// standing — is unrecoverable, and a single mis-tap on a red row is not
+  /// consent to lose it.
+  Future<void> _deleteAccount() async {
+    final ok = await sqConfirm(context,
+      title: tr('Аккаунтты жою'),
+      message: tr('Барлық сөзің, XP-ің, рейтингің және сериялар біржола '
+          'өшеді. Мұны кері қайтару мүмкін емес.'),
+      confirm: tr('Жалғастыру'),
+      danger: true);
+    if (!ok || !mounted) return;
+
+    final typed = await _confirmWord();
+    if (typed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await PushService.instance.clearToken();
+      await ref.read(metaProvider.notifier).reset();
+      await _repo.deleteAccount();
+      if (!mounted) return;
+      ref.read(showLoginProvider.notifier).state = true;
+      // This screen is pushed on top of the settings list, and both of them
+      // belong to an account that no longer exists — so the whole stack goes,
+      // not just this route.
+      Navigator.of(context).popUntil((r) => r.isFirst);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        sqSnack(context, humanError(e), error: true);
+      }
+    }
+  }
+
+  /// The second gate: the learner types the word rather than tapping again.
+  Future<bool?> _confirmWord() {
+    final want = tr('ЖОЮ');
+    final field = TextEditingController();
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setInner) => AlertDialog(
+          title: Text(tr('Аккаунтты жою')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(trp('Растау үшін «{w}» деп жаз', {'w': want}),
+                style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: field,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (_) => setInner(() {}),
+                decoration: InputDecoration(hintText: want),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(tr('Болдырмау'))),
+            TextButton(
+              onPressed: field.text.trim().toUpperCase() == want
+                  ? () => Navigator.of(ctx).pop(true)
+                  : null,
+              child: Text(tr('Жою'),
+                style: const TextStyle(color: AppColors.red))),
+          ],
+        ),
+      ),
+    ).whenComplete(field.dispose);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
@@ -234,7 +319,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
           Padding(
             padding: const EdgeInsets.only(left: 2, bottom: 9),
-            child: SqEyebrow(tr('Кіру деректері'))),
+            child: SqEyebrow(tr('Кіру мен қауіпсіздік'))),
           SqGroup(children: [
             SqTile(
               leading: const SqTintBox(PhosphorIconsFill.phone,
@@ -263,6 +348,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             style: TextStyle(
               fontSize: 11.5, height: 1.5, fontWeight: FontWeight.w600,
               color: AppColors.text3(d))),
+          const SizedBox(height: 18),
+
+          // Same section, its own group: a row that erases everything should
+          // not share an edge with the password row above it. This branch is
+          // already the signed-in one — a guest has no account to erase, so
+          // no extra guard is needed here.
+          SqGroup(children: [
+            SqTile(
+              leading: const SqTintBox(PhosphorIconsFill.trash,
+                tint: AppColors.red, size: 34),
+              title: tr('Аккаунтты жою'),
+              titleColor: AppColors.red,
+              chevron: true,
+              onTap: _busy ? null : _deleteAccount),
+          ]),
         ],
       ],
     );

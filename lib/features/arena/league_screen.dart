@@ -1,25 +1,21 @@
-﻿// lib/features/arena/league_screen.dart
+// lib/features/arena/league_screen.dart
 //
-// The weekly league: thirty learners per group, top ten promote, bottom ten
-// demote.
+// The league is a rating threshold, not a top-ten cut.
 //
-// 5.0 ranks it on RATING rather than on XP earned this week (EN-19 / KK-3).
-// Before, the league measured how much you played and the rating measured how
-// well you played, and the two ladders had nothing to say to each other —
-// which is what made "climb the league" and "raise your rating" feel like two
-// unrelated games running side by side. The band a learner sits in now comes
-// straight from their Elo, and the room is ordered by it.
+// Until today this screen promoted the top ten of a thirty-person room and
+// relegated the bottom ten, which meant two learners with the same rating had
+// opposite fates depending on who happened to share their room — and somebody
+// who improved all week could still be pushed down by strangers. The rule the
+// product owner actually wants is the plain one: "кім келесі лиганың минимум
+// кубогына жетті сол өтеді". You move up when your rating reaches the number
+// the next band opens at. Nobody is promoted for placing.
 //
-// The band names, their thresholds and their colours all come from the server
-// (league_bands()), never from a list compiled in here: a ladder whose rungs
-// disagree between the app and the database is worse than no ladder. Until
-// v5_league_elo.sql is applied the rows carry no band at all, and _tierNames
-// below is the fallback that keeps the screen readable in the meantime.
+// So the promotion and relegation zones are gone, along with every mention of
+// a top ten, and nothing here is measured in XP any more: the room is a rating
+// table, and the header is one distance to one number.
 //
-// 4.0 stops explaining the rule in a legend and draws it instead: a green band
-// above the promotion cut, a red band below the relegation cut, and your own
-// row tinted violet wherever it sits between them. You can read your fate
-// without reading a sentence.
+// Every band name, threshold and colour comes from the server — see
+// league_repo.dart for why none of it is compiled into the app.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,17 +25,17 @@ import '../../core/constants/game_meta.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/battle.dart';
+import '../../data/repos/league_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../play/play_session_screen.dart';
 
-/// Fallback band names, used only while the server is still on the old
-/// my_league() and sends no band with the row.
-List<String> get _tierNames => [
-  tr('Қола'), tr('Күміс'), tr('Алтын'), tr('Платина'), tr('Алмас'), tr('Тұғыр'),
-];
-const _promote = 10;
-const _demote = 10;
+/// The band's own colour as the server sends it. The compiled palette is only
+/// a fallback for a band that arrives without one — it holds five shades for
+/// seven rungs, so the summit reuses the brand red rather than inventing one.
+Color _bandColor(String hex, int tier) =>
+    sqHexColor(hex) ??
+    (tier < AppColors.tiers.length ? AppColors.tiers[tier] : AppColors.red);
 
 class LeagueScreen extends ConsumerWidget {
   const LeagueScreen({super.key});
@@ -47,87 +43,56 @@ class LeagueScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(langProvider); // repaint on a language switch
-    final d = isDark(context);
-    final async = ref.watch(myLeagueProvider);
+    final async = ref.watch(leagueStandingsProvider);
+    final progress = ref.watch(leagueProgressProvider).valueOrNull;
 
     return SqPage(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
       onRefresh: () async {
-        ref.invalidate(myLeagueProvider);
+        ref.invalidate(leagueStandingsProvider);
+        ref.invalidate(leagueProgressProvider);
         await Future<void>.delayed(const Duration(milliseconds: 350));
       },
       children: [
+        SqHeader(
+          title: tr('Лига'),
+          onBack: () => Navigator.of(context).pop()),
+        const SizedBox(height: 16),
+
         async.when(
           loading: () => const Column(children: [
-            SqShimmer(height: 60, margin: EdgeInsets.only(bottom: 16)),
-            SqShimmer(height: 70), SqShimmer(height: 240)]),
-          error: (e, _) => Column(
-            children: [
-              SqHeader(title: tr('Лига'),
-                onBack: () => Navigator.of(context).pop()),
-              const SizedBox(height: 30),
-              SqEmpty(
-                icon: PhosphorIconsFill.warningCircle,
-                title: tr('Лига жүктелмеді'),
-                subtitle: humanError(e),
-                tint: AppColors.red),
-            ],
-          ),
+            SqShimmer(height: 148, margin: EdgeInsets.only(bottom: 16)),
+            SqShimmer(height: 240)]),
+          error: (e, _) => SqEmpty(
+            icon: PhosphorIconsFill.warningCircle,
+            title: tr('Лига жүктелмеді'),
+            subtitle: humanError(e),
+            tint: AppColors.red),
           data: (rows) {
-            final tier = (rows.isEmpty ? 0 : rows.first.tier).clamp(0, 5);
             final me = rows.where((r) => r.isMe).firstOrNull;
-            // The server's own name for the band wins; the compiled list is
-            // only there for a server that has not been migrated yet.
-            final bandName = rows.isEmpty || rows.first.tierName.isEmpty
-                ? _tierNames[tier]
-                : rows.first.tierName;
-            final demoteFrom = rows.length - _demote;
+            // Only league_progress() knows the band *above* this one, and the
+            // standings usually land first. Until it answers, the learner's
+            // own row already carries their rating and their band, which is
+            // enough to draw the header — a header that appears late reads
+            // like a header that failed.
+            final band =
+                progress ?? (me == null ? null : LeagueProgress.fromRow(me));
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SqHeader(
-                  title: trp('{tier} лигасы', {'tier': bandName}),
-                  eyebrow: tr('Апталық лига'),
-                  onBack: () => Navigator.of(context).pop(),
-                  actions: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.soft(AppColors.red, d),
-                        borderRadius: BorderRadius.circular(999)),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(PhosphorIconsFill.clock,
-                            size: 14, color: AppColors.red),
-                          const SizedBox(width: 5),
-                          SqNum(_untilMonday(),
-                            size: 11.5, color: AppColors.redInk),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                if (band != null) ...[
+                  _Crown(band),
+                  const SizedBox(height: 18),
+                ],
 
-                Row(
-                  children: [
-                    for (var i = 0; i < 6; i++) ...[
-                      Expanded(child: _TierPip(index: i, active: i == tier)),
-                      if (i != 5) const SizedBox(width: 5),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // What the band actually means. A ladder rung with no number
-                // on it is just a colour, and "how far am I from the next
-                // one" is the only question anybody opens this screen to ask.
-                if (me != null && me.tierMax > 0)
-                  _BandRange(me: me),
-                if (me != null && me.tierMax > 0) const SizedBox(height: 16),
+                // The whole ladder, so "where am I in all of this" is a look
+                // rather than a guess.
+                if (band != null && band.bands.isNotEmpty) ...[
+                  SqSection(tr('Лига баспалдағы')),
+                  _Ladder(bands: band.bands, tier: band.tier),
+                  const SizedBox(height: 20),
+                ],
 
                 if (rows.isEmpty)
                   SqEmpty(
@@ -135,63 +100,24 @@ class LeagueScreen extends ConsumerWidget {
                     title: tr('Лигаға енді қосыласың'),
                     subtitle: tr('Рейтингті баттл ойна — орның рейтингіңмен '
                                  'анықталады'))
-                else
+                else ...[
+                  SqSection(tr('Рейтинг бойынша')),
                   Container(
                     decoration: BoxDecoration(
-                      color: AppColors.card(d),
+                      color: AppColors.card(isDark(context)),
                       borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: AppColors.border(d)),
+                      border: Border.all(color: AppColors.border(isDark(context))),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: Column(
                       children: [
-                        _Band(
-                          icon: PhosphorIconsFill.arrowFatLineUp,
-                          label: trp('Көтерілу аймағы · топ-{n}',
-                            {'n': '$_promote'}),
-                          tint: AppColors.green),
-                        for (var i = 0; i < rows.length; i++) ...[
-                          _Row(row: rows[i], total: rows.length),
-                          if (i == _promote - 1 && rows.length > _promote)
-                            _Band(
-                              icon: PhosphorIconsBold.minus,
-                              label: tr('Қалу аймағы'),
-                              tint: AppColors.text3(d)),
-                          if (i == demoteFrom - 1 &&
-                              rows.length > _promote + _demote)
-                            _Band(
-                              icon: PhosphorIconsFill.arrowFatLineDown,
-                              label: trp('Түсу аймағы · соңғы {n}',
-                                {'n': '$_demote'}),
-                              tint: AppColors.red),
-                        ],
+                        for (var i = 0; i < rows.length; i++)
+                          _Row(row: rows[i], first: i == 0),
                       ],
                     ),
                   ),
+                ],
                 const SizedBox(height: 16),
-
-                SqPanel(
-                  radius: 20,
-                  padding: const EdgeInsets.all(16),
-                  fill: AppColors.soft(AppColors.primary, d),
-                  border: AppColors.line(AppColors.primary, d),
-                  child: Row(
-                    children: [
-                      const Icon(PhosphorIconsFill.info,
-                        size: 22, color: AppColors.primaryDeep),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _advice(rows, me),
-                          style: TextStyle(
-                            fontSize: 12, height: 1.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.onSoft(AppColors.primary, d))),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
 
                 SqAction(tr('Рейтинг жинауға кірісу'),
                   icon: PhosphorIconsFill.lightning,
@@ -199,7 +125,8 @@ class LeagueScreen extends ConsumerWidget {
                     await Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) =>
                           const PlaySessionScreen(mode: PlayMode.classic)));
-                    ref.invalidate(myLeagueProvider);
+                    ref.invalidate(leagueStandingsProvider);
+                    ref.invalidate(leagueProgressProvider);
                   }),
               ],
             );
@@ -208,89 +135,114 @@ class LeagueScreen extends ConsumerWidget {
       ],
     );
   }
-
-  /// The one sentence on the screen, and it answers the only question the
-  /// screen is opened to ask. It reads the rating rather than weekly XP,
-  /// because that is what the standings are now ordered by — advice measured
-  /// in a number the table is not sorted on is advice nobody can act on.
-  static String _advice(List<LeagueRow> rows, LeagueRow? me) {
-    if (me == null) {
-      return trp('Апта соңында топ-{n} жоғары көтеріледі.',
-        {'n': '$_promote'});
-    }
-    // The summit has nowhere above it, so "how do I climb" is the wrong
-    // question to answer there (EN-19).
-    if (me.isTopRank) {
-      return tr('Ең жоғарғы дәрежедесің. Мұнда рейтингіңді ұстап тұру керек.');
-    }
-    if (me.rank <= _promote) {
-      final below = rows.where((r) => r.rank == _promote + 1).firstOrNull;
-      final gap = below == null ? 0 : (me.elo - below.elo).clamp(0, 1 << 30);
-      return trp('Көтерілу аймағындасың — артыңдағыдан {n} рейтинг алдасың.',
-        {'n': '$gap'});
-    }
-    final target = rows.where((r) => r.rank == _promote).firstOrNull;
-    final need = target == null ? 0 : (target.elo - me.elo).clamp(0, 1 << 30);
-    return trp('{r}-орын. Көтерілуге {n} рейтинг керек.',
-      {'r': '${me.rank}', 'n': '$need'});
-  }
-
-  static String _untilMonday() {
-    final now = DateTime.now();
-    final days = 8 - now.weekday;
-    final hours = 24 - now.hour;
-    return days >= 7
-        ? trp('{h} сағ', {'h': '$hours'})
-        : trp('{d} күн {h} сағ', {'d': '$days', 'h': '$hours'});
-  }
 }
 
-/// Where the learner sits inside their own band, and what the next one costs.
-class _BandRange extends StatelessWidget {
-  final LeagueRow me;
-  const _BandRange({required this.me});
+/// The band, the rating, and the one sentence about what happens next.
+class _Crown extends StatelessWidget {
+  final LeagueProgress p;
+  const _Crown(this.p);
+
+  /// The only sentence on the screen. It names a band and a number, because
+  /// the rule is now a number: reach it and you are in the next league.
+  String get _next {
+    if (p.isTop) return tr('Ең жоғарғы лига');
+    if (p.nextName.isEmpty) {
+      return trp('Келесі лигаға {n} ұпай қалды', {'n': '${p.toNext}'});
+    }
+    return trp('{tier} лигасына {n} ұпай қалды',
+      {'tier': p.nextName, 'n': '${p.toNext}'});
+  }
 
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
-    final tint = sqHexColor(me.tierColour) ?? AppColors.primary;
-    final span = (me.tierMax - me.tierMin).clamp(1, 1 << 30);
-    final into = ((me.elo - me.tierMin) / span).clamp(0.0, 1.0);
+    final tint = _bandColor(p.colour, p.tier);
+    final name = p.name.isEmpty ? tr('Лига') : p.name;
 
-    return SqPanel(
-      radius: 18,
-      padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
+    return SqInkCard(
+      glow: tint,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(PhosphorIconsFill.shieldStar, size: 15, color: tint),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  me.isTopRank
-                      ? trp('{n} рейтингтен жоғары', {'n': '${me.tierMin}'})
-                      : trp('{lo} – {hi} рейтинг',
-                          {'lo': '${me.tierMin}', 'hi': '${me.tierMax}'}),
-                  style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700,
-                    color: AppColors.text2(d))),
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: tint.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(15)),
+                alignment: Alignment.center,
+                child: Icon(PhosphorIconsFill.shieldStar, size: 23, color: tint),
               ),
-              SqNum('${me.elo}', size: 14, color: tint),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Text(name,
+                  style: const TextStyle(
+                    fontSize: 21, fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4, height: 1.15, color: Colors.white)),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SqNum('${p.elo}', size: 25, color: Colors.white),
+                  SqEyebrow(tr('Рейтинг'), color: AppColors.onInk2, size: 9),
+                ],
+              ),
             ],
           ),
-          if (!me.isTopRank) ...[
-            const SizedBox(height: 9),
-            SqTrack(into, color: tint, height: 7),
-            const SizedBox(height: 5),
-            Text(
-              trp('Келесі дәрежеге {n} рейтинг қалды',
-                {'n': '${(me.tierMax + 1 - me.elo).clamp(0, 1 << 30)}'}),
-              style: TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w600,
-                color: AppColors.text3(d))),
+
+          // The bar runs from the floor of this band to the threshold of the
+          // next one — the span promotion is actually decided on. A bar drawn
+          // against a placing in the room would be measuring something nobody
+          // is judged by any more.
+          if (!p.isTop) ...[
+            const SizedBox(height: 17),
+            SqTrack(p.intoBand,
+              color: tint,
+              background: AppColors.inkBlockTrack(d),
+              height: 9),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                SqNum('${p.bandMin}', size: 10.5, color: AppColors.onInk3),
+                const Spacer(),
+                SqNum('${p.nextAt}', size: 10.5, color: AppColors.onInk3),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 12),
+          Text(_next,
+            style: const TextStyle(
+              fontSize: 13, height: 1.45, fontWeight: FontWeight.w700,
+              color: AppColors.onInkSoft)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Every rung of the ladder with the rating it opens at.
+class _Ladder extends StatelessWidget {
+  final List<LeagueBand> bands;
+  final int tier;
+  const _Ladder({required this.bands, required this.tier});
+
+  @override
+  Widget build(BuildContext context) {
+    // Horizontal and scrollable rather than seven cells squeezed across a
+    // phone: a band named "Платина" has to be able to print its whole name.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < bands.length; i++) ...[
+            _Rung(band: bands[i], here: bands[i].tier == tier),
+            if (i != bands.length - 1) const SizedBox(width: 8),
           ],
         ],
       ),
@@ -298,65 +250,47 @@ class _BandRange extends StatelessWidget {
   }
 }
 
-class _TierPip extends StatelessWidget {
-  final int index;
-  final bool active;
-  const _TierPip({required this.index, required this.active});
+class _Rung extends StatelessWidget {
+  final LeagueBand band;
+  final bool here;
+  const _Rung({required this.band, required this.here});
 
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
-    // AppColors.tiers holds five; the summit reuses the brand red so the
-    // top rung reads as a different thing rather than a sixth shade.
-    final tint = index < AppColors.tiers.length
-        ? AppColors.tiers[index] : AppColors.red;
+    final tint = _bandColor(band.colour, band.tier);
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: active ? tint : AppColors.muted(d),
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: active ? tint : AppColors.border(d)),
+        color: here ? AppColors.soft(tint, d) : AppColors.card(d),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: here ? AppColors.line(tint, d) : AppColors.border(d),
+          width: here ? 1.5 : 1),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(PhosphorIconsFill.shieldStar,
-            size: 16, color: active ? Colors.white : AppColors.text4(d)),
-          const SizedBox(height: 5),
-          Text(tr(_tierNames[index]),
-            style: TextStyle(
-              fontSize: 9.5, fontWeight: FontWeight.w800,
-              color: active ? Colors.white : AppColors.text4(d))),
-        ],
-      ),
-    );
-  }
-}
-
-class _Band extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color tint;
-  const _Band({required this.icon, required this.label, required this.tint});
-
-  @override
-  Widget build(BuildContext context) {
-    final d = isDark(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
-      color: AppColors.soft(tint, d),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: AppColors.onSoft(tint, d)),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(label.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10.5, fontWeight: FontWeight.w800,
-                letterSpacing: 0.02,
-                color: AppColors.onSoft(tint, d))),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(color: tint, shape: BoxShape.circle)),
+              const SizedBox(width: 6),
+              Text(band.name,
+                style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w800,
+                  color: here
+                      ? AppColors.onSoft(tint, d) : AppColors.text2(d))),
+            ],
           ),
+          const SizedBox(height: 4),
+          // The number that moves you. Reaching it is the whole rule.
+          SqNum(band.isTop ? '${band.min}+' : '${band.min}',
+            size: 11, color: AppColors.text3(d)),
         ],
       ),
     );
@@ -365,28 +299,28 @@ class _Band extends StatelessWidget {
 
 class _Row extends StatelessWidget {
   final LeagueRow row;
-  final int total;
-  const _Row({required this.row, required this.total});
+  final bool first;
+  const _Row({required this.row, required this.first});
 
   @override
   Widget build(BuildContext context) {
     final d = isDark(context);
-    final promoting = row.rank <= _promote;
-    final demoting = total > _promote + _demote && row.rank > total - _demote;
-    final tint = promoting
-        ? AppColors.green
-        : demoting ? AppColors.red : AppColors.text3(d);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
       decoration: BoxDecoration(
         color: row.isMe ? AppColors.soft(AppColors.primary, d) : null,
-        border: Border(top: BorderSide(color: AppColors.divider(d))),
+        border: first
+            ? null
+            : Border(top: BorderSide(color: AppColors.divider(d))),
       ),
       child: Row(
         children: [
-          SizedBox(width: 20,
-            child: SqNum('${row.rank}', size: 13, color: tint)),
+          // A band holds everybody inside a rating range, so the place can run
+          // past two digits — the box grows rather than clipping the number.
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 22),
+            child: SqNum('${row.rank}', size: 13, color: AppColors.text3(d))),
           const SizedBox(width: 10),
           SqAvatar(row.name,
             size: 34,
@@ -402,10 +336,11 @@ class _Row extends StatelessWidget {
                 color: row.isMe
                     ? AppColors.primaryDeep : AppColors.text(d))),
           ),
-          // The number the table is sorted by. Showing weekly XP here while
-          // ranking on rating was the quickest way to make the order look
-          // arbitrary.
-          SqNum('${row.elo}', size: 12.5, color: AppColors.text2(d)),
+          const SizedBox(width: 10),
+          // The one number on the row, and the one the table is ordered by.
+          SqNum('${row.elo}',
+            size: 13,
+            color: row.isMe ? AppColors.primaryDeep : AppColors.text2(d)),
         ],
       ),
     );

@@ -229,15 +229,47 @@ class _TeamWarScreenState extends ConsumerState<TeamWarScreen> {
       ),
     ),
     const SizedBox(height: 14),
-    Center(
-      child: TextButton(
-        onPressed: () => _showRules(s),
-        child: Text(tr('Ережелерді оқу'))),
-    ),
+    // The rules belong here, not only behind the "?" — this is the screen
+    // where somebody decides whether to pull their team into a whole day of
+    // it.
+    _rulesPanel(d, s),
   ];
 
+  /// EN-26's three rules where they can be read without opening anything.
+  ///
+  /// The numbers come from team_rules() by way of war_state, never from a
+  /// constant here — a rulebook that quotes a number the server has since
+  /// changed is worse than no rulebook.
+  Widget _rulesPanel(bool d, WarState s) => SqPanel(
+    padding: const EdgeInsets.fromLTRB(14, 13, 14, 5),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _RuleLine(
+          icon: PhosphorIconsFill.clock,
+          text: tr('Шайқас бір күнге созылады')),
+        _RuleLine(
+          icon: PhosphorIconsFill.handFist,
+          text: trp('Әр мүшеге күніне {n} соққы есептеледі',
+            {'n': '${s.matchLimit}'})),
+        _RuleLine(
+          icon: PhosphorIconsFill.users,
+          text: trp('Командадан кемінде {n} мүше ойнамайынша, зақым '
+                    'есептелмейді', {'n': '${s.minPlayers}'})),
+      ],
+    ),
+  );
+
   List<Widget> _inWar(bool d, WarState s, TeamWar war) {
-    final canAttack = !war.isFinished && war.isToday && war.matchesLeft > 0;
+    // war_state answers with a status='open' row the moment a team queues, and
+    // team_b stays null until somebody is paired with it. isFinished, isToday
+    // and matchesLeft all say "go" in that state, which is why the red button
+    // used to render right beside the "Қарсылас күтілуде" card — ten questions
+    // later submit_war_match refused the score with TEAM_ERR:war_over.
+    final waiting = !war.isFinished && war.oppTeam == null;
+    final canAttack =
+        !war.isFinished && !waiting && war.isToday && war.matchesLeft > 0;
     final blocked = war.myPlayers < s.minPlayers;
 
     return [
@@ -340,6 +372,38 @@ class _TeamWarScreenState extends ConsumerState<TeamWarScreen> {
                 color: AppColors.text2(d))),
           ),
         )
+      else if (waiting)
+        SqPanel(
+          padding: const EdgeInsets.all(16),
+          fill: AppColors.soft(AppColors.sky, d),
+          border: AppColors.line(AppColors.sky, d),
+          child: Row(
+            children: [
+              const Icon(PhosphorIconsFill.hourglassMedium,
+                size: 20, color: AppColors.sky),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(tr('Қарсылас күтілуде'),
+                      style: TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w800,
+                        color: AppColors.onSoft(AppColors.sky, d))),
+                    const SizedBox(height: 2),
+                    Text(
+                      tr('Командаң кезекте тұр. Қарсылас табылған соң шабуыл '
+                         'ашылады.'),
+                      style: TextStyle(
+                        fontSize: 12, height: 1.4, fontWeight: FontWeight.w600,
+                        color: AppColors.onSoft(AppColors.sky, d))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        )
       else if (canAttack)
         SqAction(
           trp('Шабуылдау · {n} соққы қалды', {'n': '${war.matchesLeft}'}),
@@ -361,6 +425,9 @@ class _TeamWarScreenState extends ConsumerState<TeamWarScreen> {
                 color: AppColors.text3(d))),
           ),
         ),
+
+      const SizedBox(height: 14),
+      _rulesPanel(d, s),
 
       if (war.top.isNotEmpty) ...[
         const SizedBox(height: 18),
@@ -435,6 +502,38 @@ class _SideCard extends StatelessWidget {
             style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w600,
               color: AppColors.text3(d))),
+        ],
+      ),
+    );
+  }
+}
+
+/// One rule as a line on the page itself. Narrower than [_Rule], which is
+/// sized for the sheet — this one has to sit under the attack button without
+/// pushing it off the screen, and its text wraps rather than being cut.
+class _RuleLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _RuleLine({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 15, color: AppColors.red)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(text,
+              style: TextStyle(
+                fontSize: 12, height: 1.45, fontWeight: FontWeight.w600,
+                color: AppColors.text2(d))),
+          ),
         ],
       ),
     );

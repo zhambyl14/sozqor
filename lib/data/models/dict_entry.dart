@@ -78,6 +78,22 @@ class DictEntry {
 
   bool get hasDefinition => (definitionEn ?? '').trim().isNotEmpty;
   bool get hasSynonyms   => synonyms.isNotEmpty;
+  bool get hasExample    => (exampleEn ?? '').trim().isNotEmpty;
   bool get hasAntonyms   => antonyms.isNotEmpty;
   String get display     => '${emoji ?? ''} $en'.trim();
+
+  /// Whether the row can be handed to a learner exactly as it stands.
+  ///
+  /// The edge function gates on these same six fields before it serves a
+  /// stored row instead of paying a model for it (`isComplete` in
+  /// sozqor-ai/index.ts). The two have to agree: when the client thinks a row
+  /// is finished and the server does not — or the other way round — the app
+  /// either shows a blank meaning or pays to re-fill fields it already has.
+  bool get isComplete =>
+      en.trim().isNotEmpty &&
+      kk.trim().isNotEmpty &&
+      (ru ?? '').trim().isNotEmpty &&
+      hasDefinition &&
+      hasExample &&
+      synonyms.length >= 2;
 }

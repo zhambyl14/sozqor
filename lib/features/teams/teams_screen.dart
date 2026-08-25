@@ -20,6 +20,7 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
+import '../../data/models/battle.dart';
 import '../../data/models/team.dart';
 import '../../data/repos/teams_repo.dart';
 import '../../data/supa.dart';
@@ -101,10 +102,28 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
     if (made == true) refreshTeam(ref);
   }
 
-  Future<void> _join(TeamBoardRow row) => _run(() async {
-    await ref.read(teamsRepoProvider).join(row.id);
-    if (mounted) sqSnack(context, trp('«{p1}» командасына қосылдың', {'p1': row.name}));
-  });
+  /// The same gate `_create` uses. Without it the server answers a guest with
+  /// TEAM_ERR:guest, which is a refusal with no way forward in it — the sheet
+  /// is the way forward.
+  Future<void> _join(TeamBoardRow row) async {
+    if (!await requireAccount(context, ref, GuestFeature.friends)) return;
+    if (!mounted) return;
+    await _run(() async {
+      await ref.read(teamsRepoProvider).join(row.id);
+      if (mounted) {
+        sqSnack(context, trp('«{p1}» командасына қосылдың', {'p1': row.name}));
+      }
+    });
+  }
+
+  Future<void> _invitePlayer() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _InvitePlayerSheet(),
+    );
+    refreshTeam(ref);
+  }
 
   Future<void> _leave(Team team) async {
     final ok = await sqConfirm(context,
@@ -369,7 +388,7 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
       const SizedBox(height: 18),
 
       SqSection(tr('Мүшелер'),
-        trailingWidget: SqNum('${roster.length}',
+        trailingWidget: SqNum('${roster.length}/${team.memberLimit}',
           size: 11, color: AppColors.text3(d))),
       if (roster.isEmpty)
         const SqShimmer()
@@ -392,6 +411,17 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
                   userId: m.userId, fallbackName: m.name))),
             ),
         ]),
+
+      // Only the owner and officers may invite — the server refuses everybody
+      // else, and offering a button that always fails is worse than not
+      // offering one.
+      if (team.iAmOfficer && !team.isFull) ...[
+        const SizedBox(height: 12),
+        SqAction(tr('Ойыншы шақыру'),
+          icon: PhosphorIconsBold.userPlus,
+          tone: SqTone.softPrimary,
+          onTap: _busy ? null : _invitePlayer),
+      ],
     ];
   }
 }
@@ -613,6 +643,138 @@ class _SearchBar extends StatelessWidget {
             child: const Icon(PhosphorIconsBold.arrowRight,
               size: 17, color: AppColors.primary)),
         ],
+      ),
+    );
+  }
+}
+
+// ── Inviting a player ────────────────────────────────────────
+
+/// The roster's way to reach `invite_to_team`, which had no button anywhere in
+/// the app until now.
+///
+/// It asks for a whole handle on purpose. `search_users` was tightened in
+/// v5_friend_search.sql to answer only a full @username or a pasted account
+/// id, three characters minimum, precisely so that this kind of screen cannot
+/// become a directory of strangers to page through — you invite somebody you
+/// already know how to name.
+class _InvitePlayerSheet extends ConsumerStatefulWidget {
+  const _InvitePlayerSheet();
+
+  @override
+  ConsumerState<_InvitePlayerSheet> createState() => _InvitePlayerSheetState();
+}
+
+class _InvitePlayerSheetState extends ConsumerState<_InvitePlayerSheet> {
+  final _query = TextEditingController();
+  List<BoardRow> _results = const [];
+  bool _searching = false;
+  bool _searched = false;
+  String? _sending;
+
+  @override
+  void dispose() { _query.dispose(); super.dispose(); }
+
+  Future<void> _find() async {
+    final q = _query.text.trim();
+    if (q.length < 3) {
+      sqSnack(context, tr('Толық @атын немесе аккаунт ID-ін жаз'), error: true);
+      return;
+    }
+    setState(() => _searching = true);
+    try {
+      final rows = await ref.read(boardRepoProvider).searchUsers(q);
+      if (mounted) setState(() { _results = rows; _searched = true; });
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  Future<void> _invite(BoardRow row) async {
+    setState(() => _sending = row.userId);
+    try {
+      // 'already' means a pending invitation is still sitting in their inbox —
+      // saying "invited" a second time would look like it never arrived.
+      final result = await ref.read(teamsRepoProvider).invite(row.userId);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      sqSnack(context, result == 'already'
+          ? trp('{p1} бұрын шақырылған — жауабын күт', {'p1': row.name})
+          : trp('{p1} командаға шақырылды', {'p1': row.name}));
+    } on TeamsUnavailable {
+      if (mounted) {
+        setState(() => _sending = null);
+        sqSnack(context, tr('Команда жүйесі әлі қосылмаған'), error: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _sending = null);
+        sqSnack(context, humanError(e), error: true);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(langProvider); // repaint on a language switch
+    final d = isDark(context);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          20, 18, 20, MediaQuery.of(context).viewInsets.bottom + 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SqSheetGrip(),
+            Text(tr('Ойыншы шақыру'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17, fontWeight: FontWeight.w800,
+                color: AppColors.text(d))),
+            const SizedBox(height: 6),
+            Text(tr('Толық @атын немесе аккаунт ID-ін жаз'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5, height: 1.4, fontWeight: FontWeight.w600,
+                color: AppColors.text3(d))),
+            const SizedBox(height: 16),
+
+            _SearchBar(
+              controller: _query,
+              hint: tr('@аты немесе ID'),
+              onSubmit: _find),
+            const SizedBox(height: 12),
+
+            if (_searching)
+              const Column(children: [SqShimmer(), SqShimmer()])
+            else if (_results.isNotEmpty)
+              SqGroup(children: [
+                for (final r in _results)
+                  SqTile(
+                    leading: SqAvatar(r.name, size: 36),
+                    title: r.name,
+                    subtitle: r.username.isEmpty ? null : '@${r.username}',
+                    trailing: _sending == r.userId
+                        ? const SizedBox(
+                            width: 18, height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : SqBadge(tr('Шақыру'),
+                            tint: AppColors.primary, solid: true),
+                    onTap: _sending == null ? () => _invite(r) : null,
+                  ),
+              ])
+            else if (_searched)
+              SqEmpty(
+                icon: PhosphorIconsFill.magnifyingGlass,
+                title: tr('Ойыншы табылмады'),
+                subtitle: tr('Аты дәл жазылғанын тексер — қонақтар табылмайды'),
+                tint: AppColors.sky),
+          ],
+        ),
       ),
     );
   }

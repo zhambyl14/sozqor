@@ -27,6 +27,24 @@ class Battle {
   /// reopened result screen needs them to show a duration (EN-28).
   final DateTime? startedAt, endedAt;
 
+  /// Each side answers in the language THEY chose. A single shared question
+  /// list was why a learner reading the app in Russian was being asked
+  /// Kazakh→English: the questions carried one language for both players.
+  final String p1Lang, p2Lang;
+
+  /// A rematch is three games between the same two people, not an unbounded
+  /// chain. [seriesId] groups them so both clients read the same scoreline
+  /// instead of each keeping a private tally.
+  final String? seriesId, rematchOf;
+  final int seriesGame;
+
+  /// Set by whoever pressed "Кек қайтару". The next game exists only once
+  /// both are true — one player cannot drag the other into another round.
+  final bool p1Rematch, p2Rematch;
+
+  /// A friend invitation stops ringing 15 seconds after it was sent.
+  final DateTime? inviteExpiresAt;
+
   const Battle({
     required this.id,
     required this.mode,
@@ -53,6 +71,14 @@ class Battle {
     this.cefr = 'A1',
     this.startedAt,
     this.endedAt,
+    this.p1Lang = 'kk',
+    this.p2Lang = 'kk',
+    this.seriesId,
+    this.rematchOf,
+    this.seriesGame = 1,
+    this.p1Rematch = false,
+    this.p2Rematch = false,
+    this.inviteExpiresAt,
   });
 
   factory Battle.fromMap(Map<String, dynamic> m) => Battle(
@@ -84,6 +110,14 @@ class Battle {
     createdAt: DateTime.tryParse('${m['created_at']}') ?? DateTime.now(),
     startedAt: DateTime.tryParse('${m['started_at']}'),
     endedAt:   DateTime.tryParse('${m['ended_at']}'),
+    p1Lang:    (m['p1_lang'] ?? 'kk').toString(),
+    p2Lang:    (m['p2_lang'] ?? 'kk').toString(),
+    seriesId:  m['series_id']?.toString(),
+    rematchOf: m['rematch_of']?.toString(),
+    seriesGame: (m['series_game'] ?? 1) as int,
+    p1Rematch: (m['p1_rematch'] ?? false) as bool,
+    p2Rematch: (m['p2_rematch'] ?? false) as bool,
+    inviteExpiresAt: DateTime.tryParse('${m['invite_expires_at']}'),
   );
 
   bool amHost(String uid) => p1 == uid;
@@ -94,8 +128,26 @@ class Battle {
   int  myEloDelta(String uid)=> amHost(uid) ? p1EloDelta : p2EloDelta;
   String? oppId(String uid)  => amHost(uid) ? p2 : p1;
 
+  /// Which language THIS player's questions are asked in.
+  String myLang(String uid) => amHost(uid) ? p1Lang : p2Lang;
+
+  bool iOfferedRematch(String uid)   => amHost(uid) ? p1Rematch : p2Rematch;
+  bool oppOfferedRematch(String uid) => amHost(uid) ? p2Rematch : p1Rematch;
+
   bool get isFinished => status == 'finished';
   bool get isWaiting  => status == 'waiting';
+
+  /// Sent, but not yet accepted. Nobody is playing it.
+  bool get isInvited  => status == 'invited';
+  bool get isDeclined => status == 'declined' || status == 'cancelled';
+
+  /// Seconds left on a ringing invitation, floored at zero.
+  int get inviteSecondsLeft {
+    final at = inviteExpiresAt;
+    if (at == null) return 0;
+    final left = at.difference(DateTime.now().toUtc()).inSeconds;
+    return left < 0 ? 0 : left;
+  }
 }
 
 /// A leaderboard / friend / search row returned by the board_row RPCs.

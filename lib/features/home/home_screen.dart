@@ -155,9 +155,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         const GuestBanner(feature: GuestFeature.saveWord),
 
-        // EN-6: Today's Plan is the whole daily hub. The quest checklist and
-        // the daily challenge live inside it rather than as separate blocks
-        // repeating the same numbers further down the page.
+        // EN-6: Today's Plan is the whole daily hub. The quest checklist, the
+        // daily challenge and the current mission step live inside the card
+        // itself rather than as separate blocks around it — the plan, then
+        // the checklist that makes it up, with nothing to tap open first.
         SqRise(child: _TodayPlan(
           profile: profile,
           due: due,
@@ -166,16 +167,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         )),
         const SizedBox(height: 14),
 
-        SqEqualRow(
-          children: [
-            Expanded(child: _ChestCard(
-              meta: meta, onTap: () => _open(const ChestScreen()))),
-            const SizedBox(width: 11),
-            Expanded(child: _MissionsCard(
-              xp: profile?.xp ?? 0,
-              onTap: () => _open(const MissionsScreen()))),
-          ],
-        ),
+        // The missions card used to sit beside the chest, repeating a level
+        // and a bar that belong to today's work. That line lives in the plan
+        // now, so the chest keeps the row to itself.
+        _ChestCard(meta: meta, onTap: () => _open(const ChestScreen())),
         const SizedBox(height: 14),
 
         // EN-10: a word the learner does not have yet, offered with a way to
@@ -362,6 +357,7 @@ class _TodayPlan extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final d = isDark(context);
     final progress = ref.watch(dailyProgressProvider).valueOrNull;
     final reviewed = progress?.wordsReviewed ?? 0;
     final goal = (profile?.dailyGoal ?? 10).clamp(1, 500);
@@ -372,10 +368,82 @@ class _TodayPlan extends ConsumerWidget {
     final beadsDone = (ratio * beads).round();
 
     final playedDaily = ref.watch(playedDailyProvider).valueOrNull ?? false;
-    final doneCount = quests.where((q) => q.done).length;
+    final doneCount =
+        quests.where((q) => q.done).length + (playedDaily ? 1 : 0);
+    final total = quests.length + 1;
 
-    final card = SqInkCard(
-      padding: const EdgeInsets.all(20),
+    // The mission line reads the path from the same two sources
+    // missions_screen.dart reads, so the step named here is the step that
+    // screen opens on — a second copy of the maths would drift.
+    final xp = profile?.xp ?? 0;
+    final passClaimed = ref.watch(metaProvider).passClaimed;
+    final mission = kPassRewards.firstWhere(
+      (r) => !passClaimed.contains(r.level),
+      orElse: () => kPassRewards.last);
+    final missionReady = mission.level <= passLevelFor(xp);
+    final missionInto =
+        ((xp - (mission.level - 1) * 400) / 400).clamp(0.0, 1.0);
+
+    // Every row of today's work — the goal, the checklist, the daily
+    // challenge, the mission step — is one block. The checklist used to hang
+    // under the card as its own white group, which read as a second, unnamed
+    // topic sitting between the plan and the rest of the page.
+    final rows = <Widget>[
+      for (final q in quests)
+        _QuestRow(quest: q, claimed: claimedQuests.contains(q.id)),
+      // EN-6: the daily challenge belongs to the plan. Arena keeps its tile
+      // as a link to the results board, but the place you are told to play it
+      // is here, with everything else due today.
+      _PlanRow(
+        icon: playedDaily
+            ? PhosphorIconsFill.checkCircle
+            : PhosphorIconsFill.globeHemisphereEast,
+        tint: playedDaily ? AppColors.green : AppColors.sky,
+        title: tr('Күнделікті сынақ'),
+        done: playedDaily,
+        trailing: playedDaily
+            ? SqNum(tr('Нәтижені көр'), size: 11.5, color: AppColors.onInk3)
+            : SqBadge(tr('Ойнау'), tint: AppColors.sky, solid: true),
+        onTap: () async {
+          if (playedDaily) {
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const LeaderboardScreen(
+                initialTab: LeaderboardTab.daily)));
+            return;
+          }
+          if (!await requireAccount(context, ref, GuestFeature.daily)) return;
+          if (!context.mounted) return;
+          await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const PlaySessionScreen(mode: PlayMode.daily)));
+          if (context.mounted) {
+            ref.invalidate(playedDailyProvider);
+            refreshAll(ref);
+          }
+        },
+      ),
+      // The mission is today's work too. It used to be a card of its own two
+      // rows further down, repeating a level and a bar nobody connected to
+      // the plan; here it names the step that is actually next.
+      _PlanRow(
+        icon: PhosphorIconsFill.medal,
+        tint: AppColors.amber,
+        title: trp('Миссия: {p1}', {'p1': tr(mission.title)}),
+        note: trp('{n}-қадам', {'n': '${mission.level}'}),
+        bar: missionReady ? null : missionInto,
+        trailing: missionReady
+            ? SqBadge(tr('Алуға дайын'), tint: AppColors.green, solid: true)
+            : SqNum('${(missionInto * 100).round()}%',
+                size: 11.5, color: AppColors.onInk2),
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const MissionsScreen()));
+          if (context.mounted) refreshAll(ref);
+        },
+      ),
+    ];
+
+    return SqInkCard(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -445,74 +513,126 @@ class _TodayPlan extends ConsumerWidget {
               if (context.mounted) refreshAll(ref);
             },
           ),
+
+          // The checklist is the lower half of the same block: a hairline,
+          // not a gap wide enough to look like a new topic. Everything the
+          // learner owes today is one thing to look at.
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              SqEyebrow(tr('Бүгінгі тізім'), color: AppColors.onInk3),
+              const Spacer(),
+              SqNum('$doneCount/$total',
+                size: 11.5, color: AppColors.onInk2),
+            ],
+          ),
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i != 0)
+              Container(height: 1, color: AppColors.inkBlockTrack(d)),
+            rows[i],
+          ],
+
+          if (doneCount == total) ...[
+            const SizedBox(height: 4),
+            Center(
+              child: SqChip(
+                tr('Бүгінгі жоспар толық орындалды'),
+                icon: PhosphorIconsFill.confetti,
+                tint: AppColors.green,
+                radius: 999,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+}
 
-    // The checklist reads as the lower half of the same block: no section
-    // header, no gap wide enough to look like a new topic. Everything the
-    // learner owes today is one thing to look at.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        card,
-        const SizedBox(height: 10),
-        SqGroup(children: [
-          for (final q in quests)
-            _QuestRow(quest: q, claimed: claimedQuests.contains(q.id)),
-          // EN-6: the daily challenge belongs to the plan. Arena keeps its
-          // tile as a link to the results board, but the place you are told
-          // to play it is here, with everything else due today.
-          SqTile(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-            leading: SqTintBox(
-              playedDaily
-                  ? PhosphorIconsFill.checkCircle
-                  : PhosphorIconsFill.globeHemisphereEast,
-              tint: playedDaily ? AppColors.green : AppColors.sky,
-              size: 32),
-            title: tr('Күнделікті сынақ'),
-            titleColor: playedDaily
-                ? AppColors.text4(isDark(context))
-                : AppColors.text(isDark(context)),
-            strike: playedDaily,
-            trailing: playedDaily
-                ? SqNum(tr('Нәтижені көр'),
-                    size: 11.5, color: AppColors.text3(isDark(context)))
-                : SqBadge(tr('Ойнау'), tint: AppColors.sky, solid: true),
-            onTap: () async {
-              if (playedDaily) {
-                await Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const LeaderboardScreen(
-                    initialTab: LeaderboardTab.daily)));
-                return;
-              }
-              if (!await requireAccount(context, ref, GuestFeature.daily)) {
-                return;
-              }
-              if (!context.mounted) return;
-              await Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const PlaySessionScreen(mode: PlayMode.daily)));
-              if (context.mounted) {
-                ref.invalidate(playedDailyProvider);
-                refreshAll(ref);
-              }
-            },
-          ),
-        ]),
-        if (doneCount == quests.length && playedDaily) ...[
-          const SizedBox(height: 9),
-          Center(
-            child: SqChip(
-              tr('Бүгінгі жоспар толық орындалды'),
-              icon: PhosphorIconsFill.confetti,
-              tint: AppColors.green,
-              radius: 999,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+/// One line of today's checklist, drawn for the dark plan block.
+///
+/// SqTile is the row idiom everywhere else, but every colour it reaches for
+/// comes from AppColors.text*, which disappears on ink. Now that the checklist
+/// lives inside the plan card rather than in a white group under it, the row
+/// is restated here in the block's own palette instead of handing SqTile six
+/// colour overrides it was never built to take.
+class _PlanRow extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+  final String title;
+  /// A second line under the title — only the mission row needs one.
+  final String? note;
+  /// Struck through and dimmed: the row is finished and settled.
+  final bool done;
+  /// Progress bar under the title, or null when there is nothing left to fill.
+  final double? bar;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  const _PlanRow({
+    required this.icon,
+    required this.tint,
+    required this.title,
+    this.note,
+    this.done = false,
+    this.bar,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        child: Row(
+          children: [
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: done ? 0.16 : 0.26),
+                borderRadius: BorderRadius.circular(11)),
+              alignment: Alignment.center,
+              child: Icon(icon, size: 18, color: tint),
             ),
-          ),
-        ],
-      ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title,
+                    style: TextStyle(
+                      fontSize: 13, height: 1.3, fontWeight: FontWeight.w800,
+                      color: done ? AppColors.onInk3 : Colors.white,
+                      decorationColor: AppColors.onInk3,
+                      decoration: done
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none)),
+                  if (note != null)
+                    Text(note!,
+                      style: const TextStyle(
+                        fontSize: 11, height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.onInk3)),
+                  if (bar != null) ...[
+                    const SizedBox(height: 7),
+                    SqTrack(bar!,
+                      color: tint, height: 5,
+                      background: AppColors.inkBlockTrack(d)),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[const SizedBox(width: 10), trailing!],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -741,55 +861,6 @@ class _ChestCard extends StatelessWidget {
   }
 }
 
-class _MissionsCard extends StatelessWidget {
-  final int xp;
-  final VoidCallback onTap;
-  const _MissionsCard({required this.xp, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final d = isDark(context);
-    final level = passLevelFor(xp);
-    return SqLip(
-      fill: AppColors.card(d),
-      border: AppColors.border(d),
-      lip: AppColors.surfaceLip(d),
-      depth: 3,
-      radius: 20,
-      padding: const EdgeInsets.all(15),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Icon(PhosphorIconsFill.medal,
-                size: 26, color: AppColors.primary),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppColors.soft(AppColors.primary, d),
-                  borderRadius: BorderRadius.circular(6)),
-                child: SqNum('LVL $level',
-                  size: 9.5, color: AppColors.onSoft(AppColors.primary, d)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          Text(tr('Миссия жолы'),
-            style: TextStyle(
-              fontSize: 13.5, fontWeight: FontWeight.w800,
-              color: AppColors.text(d))),
-          const SizedBox(height: 7),
-          SqTrack(passProgressFor(xp)),
-        ],
-      ),
-    );
-  }
-}
-
 // ── Quest row ──────────────────────────────────────────────
 
 class _QuestRow extends ConsumerStatefulWidget {
@@ -827,30 +898,22 @@ class _QuestRowState extends ConsumerState<_QuestRow> {
 
   @override
   Widget build(BuildContext context) {
-    final d = isDark(context);
     final quest = widget.quest;
     final canClaim = quest.done && !widget.claimed && !_busy;
     // A claimed quest collapses to a tick. An open one shows a bar and a
     // count. A done-but-unclaimed one offers a tap to collect its XP — the
     // whole reason the daily loop pays out.
-    return SqTile(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-      leading: SqTintBox(
-        quest.done ? PhosphorIconsFill.checkCircle : quest.icon,
-        tint: quest.done ? AppColors.green : quest.tint,
-        size: 32),
+    return _PlanRow(
+      icon: quest.done ? PhosphorIconsFill.checkCircle : quest.icon,
+      tint: quest.done ? AppColors.green : quest.tint,
       title: quest.title,
-      titleColor: quest.done && widget.claimed
-          ? AppColors.text4(d) : AppColors.text(d),
-      strike: quest.done && widget.claimed,
-      below: quest.done
-          ? null
-          : SqTrack(quest.progress, color: quest.tint, height: 5),
+      done: quest.done && widget.claimed,
+      bar: quest.done ? null : quest.progress,
       trailing: canClaim
           ? SqBadge(tr('Алу'), tint: AppColors.green, solid: true)
           : SqNum('${quest.current}/${quest.target}',
               size: 11.5,
-              color: quest.done ? AppColors.green : AppColors.text3(d)),
+              color: quest.done ? AppColors.green : AppColors.onInk2),
       onTap: canClaim ? _claim : null,
     );
   }

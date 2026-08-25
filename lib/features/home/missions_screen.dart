@@ -76,6 +76,14 @@ class MissionsScreen extends ConsumerWidget {
               tint: AppColors.primary, numeric: true),
           ],
         ),
+        const SizedBox(height: 6),
+        // The badge counts rewards that were TAKEN, not levels reached. A
+        // learner on level five who has tapped nothing sees 0 / 12 and reads
+        // it as a broken counter, so the number says what it counts.
+        Text(tr('Жоғарыдағы сан — алынған сыйлық саны'),
+          style: TextStyle(
+            fontSize: 11.5, height: 1.4, fontWeight: FontWeight.w600,
+            color: AppColors.text3(d))),
         const SizedBox(height: 16),
 
         // The current step, and what to do about it. One dark block, one
@@ -128,6 +136,13 @@ class MissionsScreen extends ConsumerWidget {
             ),
           ),
         ],
+        const SizedBox(height: 14),
+
+        // The screen drew a path and a price but never said what pays into
+        // it, so a first-timer had to guess whether missions wanted their own
+        // kind of playing. Folded, like the Arena explainer: there for the
+        // one reading, out of the way for everyone else.
+        const _HowPanel(),
         const SizedBox(height: 18),
 
         SqSection(tr('Жол')),
@@ -146,11 +161,17 @@ class MissionsScreen extends ConsumerWidget {
     );
   }
 
+  /// Earned is tested before current, and the order is the whole point.
+  ///
+  /// `next` is simply the first unclaimed reward, so a learner who has passed
+  /// its level without tapping anything matched `current` first and read
+  /// "0 XP қалды" with no button — the one node they could actually collect
+  /// looked like the one node they could not.
   static _NodeState _stateOf(
     PassReward r, int level, Set<int> claimed, PassReward next) {
     if (claimed.contains(r.level)) return _NodeState.claimed;
-    if (r.level == next.level) return _NodeState.current;
     if (r.level <= level) return _NodeState.claimable;
+    if (r.level == next.level) return _NodeState.current;
     return _NodeState.locked;
   }
 }
@@ -167,6 +188,115 @@ IconData _rewardIcon(PassReward r) {
   if (r.grant!.startsWith('frame')) return PhosphorIconsFill.circleHalf;
   if (r.grant!.startsWith('theme')) return PhosphorIconsFill.moonStars;
   return PhosphorIconsFill.gift;
+}
+
+// ── How a mission is finished ────────────────────────────────
+
+/// The rules of the path, folded away.
+///
+/// Same shape as the "Баттл қалай өтеді?" panel on the Arena tab: one line
+/// you can ignore, three short steps when you cannot. Three questions were
+/// unanswered anywhere in the app — what feeds the bar, why the next node is
+/// shut, and why a reward that says "дайын" is not in the inventory.
+class _HowPanel extends StatefulWidget {
+  const _HowPanel();
+
+  @override
+  State<_HowPanel> createState() => _HowPanelState();
+}
+
+class _HowPanelState extends State<_HowPanel> {
+  bool _how = false;
+
+  static List<(String, String, String)> get _steps => [
+    ('1', tr('Кез келген режим'), tr('әр ойын жолды жылжытады')),
+    ('2', tr('Әр деңгей келесі қадамды ашады'), tr('кезекпен, аттамай')),
+    ('3', tr('Сыйлықты басып ал'), tr('баспасаң, берілмейді')),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return SqPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _how = !_how),
+            child: Row(
+              children: [
+                Icon(PhosphorIconsFill.info,
+                  size: 15, color: AppColors.text3(d)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(tr('Миссия қалай орындалады?'),
+                    style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w800,
+                      color: AppColors.text2(d))),
+                ),
+                Icon(_how
+                    ? PhosphorIconsBold.caretUp
+                    : PhosphorIconsBold.caretDown,
+                  size: 13, color: AppColors.text4(d)),
+              ],
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: !_how
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: SqEqualRow(
+                      children: [
+                        for (var i = 0; i < _steps.length; i++) ...[
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.muted(d),
+                                borderRadius: BorderRadius.circular(14)),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 20, height: 20,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.inkBlock(d),
+                                      borderRadius: BorderRadius.circular(7)),
+                                    alignment: Alignment.center,
+                                    child: SqNum(_steps[i].$1,
+                                      size: 10.5, color: Colors.white),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(_steps[i].$2,
+                                    style: TextStyle(
+                                      fontSize: 11, height: 1.3,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.text(d))),
+                                  const SizedBox(height: 2),
+                                  Text(_steps[i].$3,
+                                    style: TextStyle(
+                                      fontSize: 10, height: 1.3,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.text3(d))),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (i != _steps.length - 1) const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── The current step ─────────────────────────────────────────

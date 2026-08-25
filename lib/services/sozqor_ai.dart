@@ -70,6 +70,28 @@ class AiResult {
   };
 }
 
+/// What a [SozQorAI.suggest] call produced, and — separately — what failed.
+///
+/// The two used to be one value: `catch (_) { return fresh; }` flattened a
+/// busy model, an expired session and a genuinely exhausted dictionary into
+/// the same empty list. The screen then had nothing to go on and said the
+/// only thing an empty list can mean — "жаңа сөз табылмады, кейінірек көр" —
+/// even when the true answer was "your token expired, tap again". Those are
+/// different sentences and different next steps for the learner, so they
+/// travel as different fields.
+class SuggestResult {
+  final List<DictEntry> entries;
+
+  /// Already run through [humanError], so it is ready to put on screen. Null
+  /// when nothing failed; it can also be non-null next to a full list, when
+  /// one layer failed and the layer under it covered for it.
+  final String? error;
+
+  const SuggestResult(this.entries, {this.error});
+
+  bool get isEmpty => entries.isEmpty;
+}
+
 class AiStats {
   int brainHits = 0;
   int llmHits = 0;
@@ -209,28 +231,39 @@ class SozQorAI {
     return DictEntry.fromMap({...raw, 'en': en, 'kk': kk});
   }
 
-  /// Fresh words at the learner's level. Prefers the shared brain and only
-  /// asks the model when the brain has nothing new left to offer.
-  Future<List<DictEntry>> suggest({
+  /// Fresh words at the learner's level: the model first, and under it the
+  /// shared dictionary as a floor that cannot be rate limited or run out of
+  /// quota. Failures come back in [SuggestResult.error] rather than being
+  /// flattened into an empty list.
+  ///
+  /// [exclude] must carry everything the learner OWNS, not just what happens
+  /// to be on screen. It is forwarded whole to `dict_discover` on the server,
+  /// and the owned words are precisely the ones that must not come back.
+  ///
+  /// The old version returned early whenever the first 60 shared rows yielded
+  /// `count` survivors. Those survivors were filtered against the screen only,
+  /// so "enough" routinely meant a dozen words already sitting in the bank,
+  /// and the model — the one layer that can produce a word nobody has stored
+  /// yet — was never reached at all.
+  Future<SuggestResult> suggest({
     required String cefr,
     String topic = 'general',
     int count = 8,
     Set<String> exclude = const {},
   }) async {
     final have = exclude.map(_key).toSet();
+    final out = <DictEntry>[];
+    final taken = <String>{};
+    String? failure;
 
-    final fromShared = await _dictRepo
-        .search(cefr: [cefr], topic: topic == 'general' ? null : topic, limit: 60)
-        .catchError((_) => <DictEntry>[]);
-
-    final fresh = fromShared
-        .where((e) => !have.contains(_key(e.en)) && !have.contains(_key(e.kk)))
-        .take(count)
-        .toList();
-
-    if (fresh.length >= count) {
-      stats.brainHits++;
-      return fresh;
+    void keep(Iterable<DictEntry> rows) {
+      for (final e in rows) {
+        if (out.length >= count) return;
+        final k = _key(e.en);
+        if (k.isEmpty || have.contains(k) || have.contains(_key(e.kk))) continue;
+        if (!taken.add(k)) continue;
+        out.add(e);
+      }
     }
 
     try {
@@ -238,18 +271,43 @@ class SozQorAI {
         'task': 'suggest',
         'cefr': cefr,
         'topic': topic,
-        'count': count - fresh.length,
-        'exclude': exclude.take(40).toList(),
+        'count': count,
+        // The whole owned set travels, not a screenful of it: the edge
+        // function hands it to dict_discover, and forty entries was small
+        // enough that a learner with a real bank kept being offered words
+        // they had already saved.
+        'exclude': exclude.take(200).toList(),
       });
-      final list = (data['entries'] as List? ?? const [])
-          .map((e) => DictEntry.fromMap(Map<String, dynamic>.from(e as Map)))
-          .where((e) => !have.contains(_key(e.en)))
-          .toList();
-      stats.llmHits++;
-      return [...fresh, ...list];
-    } catch (_) {
-      return fresh;
+      final before = out.length;
+      keep((data['entries'] as List? ?? const [])
+          .map((e) => DictEntry.fromMap(Map<String, dynamic>.from(e as Map))));
+      if (out.length > before) stats.llmHits++;
+    } catch (e) {
+      // Kept, not swallowed. Whether the model was busy or the dictionary is
+      // genuinely empty decides what the learner is told next.
+      failure = humanError(e);
     }
+
+    // The floor. Even with every model down, the dictionary still holds words
+    // at this level this learner has never added, and reading them costs one
+    // query and no quota — which is the entire point of dict_discover.
+    if (out.length < count) {
+      try {
+        final pool = await _dictRepo.discover(
+          cefr: cefr,
+          topic: topic,
+          exclude: [...exclude, ...taken].take(200).toList(),
+          limit: (count - out.length + 20).clamp(1, 50),
+        );
+        final before = out.length;
+        keep(pool);
+        if (out.length > before) stats.brainHits++;
+      } catch (e) {
+        failure ??= humanError(e);
+      }
+    }
+
+    return SuggestResult(out, error: failure);
   }
 
   /// A short explanation of an English word, written in [studyLang] — the

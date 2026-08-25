@@ -27,7 +27,8 @@
 //
 // The others are kept as fallbacks because a key can be topped up without
 // anybody redeploying this file, and because Gemini's free tier answers 429
-// under load.
+// under load. They are ordered by how fast they get OUT OF THE WAY when they
+// cannot help, which is why a spent OpenAI key is tried before FreeRouter.
 //
 // ── Why two models answer every new word ───────────────────
 //
@@ -39,8 +40,11 @@
 // probe that started this, two models answered "шамшырақ" with "beacon" and
 // "sunflower" and both reported 0.95.
 //
-// Every candidate also passes a structural gate — script, identity,
-// transliteration in BOTH directions, length — before it is shown or stored.
+// When they DISAGREE the word is not refused — a third model breaks the tie.
+// "шаңырақ" is honestly both "yurt crown" and "home", and refusing it over
+// that is the "Аударма табылмады" dead end. Only the STRUCTURAL gate —
+// script, identity, transliteration in both directions, length — refuses
+// outright, because a romanisation really is no answer at all.
 // The named defect: "шаңырақ" reached a learner as "shangri-la".
 //
 // ── Function secrets ───────────────────────────────────────
@@ -100,8 +104,33 @@ const FREE_MODELS = [
 
 // A learner is waiting behind every one of these. 45 seconds was long enough
 // for five sequential providers to add up to three minutes.
-const LLM_TIMEOUT = 9_000;
+const LLM_TIMEOUT = 7_000;
+// FreeRouter answered 502 or empty on every word of the probe, so it is a
+// fallback in name only. Three seconds is what it gets before the chain
+// stops waiting for it.
+const FREEROUTER_TIMEOUT = 3_000;
 const FREE_TIMEOUT = 4_000;
+
+// The whole of a translate, end to end. Walking six models at seven seconds
+// each is 40 seconds a learner spends on one word; past this the answer is
+// whatever the keyless services or the stored row can give.
+const TRANSLATE_DEADLINE = 9_000;
+const BASIC_DEADLINE = 5_000;
+const ARBITER_DEADLINE = 5_000;
+
+// The second opinion is worth having, not worth waiting for. Past this it is
+// treated as an abstention and the primary answer stands on the structural
+// gate alone -- a learner staring at a spinner is a worse outcome than an
+// answer with one endorsement instead of two.
+const SECOND_DEADLINE = 6_000;
+
+/// Resolves to null instead of hanging on past `ms`.
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    p,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
 
 const RATE_MSG = "AI лимиті бітті — қазір қарапайым аудармамен жұмыс істейміз.";
 const NO_KEY_MSG = "AI кілттері бапталмаған";
@@ -181,7 +210,9 @@ async function chatCompletions(
       temperature,
       max_tokens: maxTokens,
     }),
-    signal: AbortSignal.timeout(LLM_TIMEOUT),
+    signal: AbortSignal.timeout(
+      label === "freerouter" ? FREEROUTER_TIMEOUT : LLM_TIMEOUT,
+    ),
   });
   if (!res.ok) {
     // The status alone cannot tell "no credit left" from "too fast"; both are
@@ -266,13 +297,16 @@ function chain(
       out.push({ id: `gemini/${m}`, run: () => callGemini(m, prompt, temperature, maxTokens) });
     }
   }
+  // OpenAI before FreeRouter on purpose: a spent OpenAI key answers 429 in
+  // 150ms, while FreeRouter takes seconds to fail. Order the fallbacks by how
+  // fast they get out of the way, not by how much they cost.
+  if (OPENAI_KEY) {
+    out.push({ id: `openai/${OPENAI_MODEL}`, run: () => callOpenAI(prompt, temperature, maxTokens) });
+  }
   if (FREEROUTER_KEY) {
     for (const m of FREEROUTER_MODELS) {
       out.push({ id: `freerouter/${m}`, run: () => callFreeRouter(m, prompt, temperature, maxTokens) });
     }
-  }
-  if (OPENAI_KEY) {
-    out.push({ id: `openai/${OPENAI_MODEL}`, run: () => callOpenAI(prompt, temperature, maxTokens) });
   }
   if (OPENROUTER_KEY && !trustedOnly) {
     for (const m of FREE_MODELS) {
@@ -285,17 +319,51 @@ function chain(
 /// Walks the chain until one provider answers. Returns the text and which
 /// model produced it, so a wrong word can be traced to its source instead of
 /// being blamed on "the AI".
+/// When each vendor may be tried again. A spent quota is not a fact about one
+/// request -- it stays true for minutes -- and this function is called several
+/// times per translate, so remembering it across calls (and across requests,
+/// while the instance lives) is what stops a dead key being re-probed six
+/// times a word. This is the difference between a 28-second wait and a
+/// 5-second one when Gemini's free tier runs out.
+const cooldownUntil = new Map<string, number>();
+const QUOTA_COOLDOWN = 90_000;
+const FLAKY_COOLDOWN = 60_000;
+
+/// A gateway that answers 502 or empty is not going to answer the next
+/// question either. Gemini and OpenAI get no such benefit of the doubt
+/// withdrawn on a one-off error -- only on an explicit quota refusal.
+const FLAKY = new Set(["freerouter", "openrouter"]);
+
 async function completeFrom(
   attempts: Attempt[],
   skip = new Set<string>(),
 ): Promise<{ text: string; model: string }> {
   const problems: string[] = [];
+  const now = Date.now();
+  // Every model behind one vendor shares one key and one quota, so a 429 from
+  // gemini/2.5-flash tells you exactly as much about gemini/3.6-flash. Trying
+  // the rest anyway is what turned a spent quota into a 28-second wait.
+  const spent = new Set<string>();
   for (const a of attempts) {
     if (skip.has(a.id)) continue;
+    const vendor = a.id.split("/")[0];
+    if (spent.has(vendor)) continue;
+    if ((cooldownUntil.get(vendor) ?? 0) > now) {
+      problems.push(`cooling ${vendor}`);
+      continue;
+    }
     try {
       return { text: await a.run(), model: a.id };
     } catch (e) {
-      problems.push(String(e));
+      const msg = String(e);
+      problems.push(msg);
+      if (msg.includes("429") || msg.includes("quota") || msg.includes(NO_KEY_MSG)) {
+        spent.add(vendor);
+        cooldownUntil.set(vendor, Date.now() + QUOTA_COOLDOWN);
+      } else if (FLAKY.has(vendor)) {
+        spent.add(vendor);
+        cooldownUntil.set(vendor, Date.now() + FLAKY_COOLDOWN);
+      }
     }
   }
   const all = problems.join(" | ");
@@ -303,7 +371,9 @@ async function completeFrom(
     throw new Error(NO_KEY_MSG);
   }
   throw new Error(
-    all.includes("429") ? `${RATE_MSG} | ${all}` : all || MSG.noAnswer.kk,
+    all.includes("429") || all.includes("cooling")
+      ? `${RATE_MSG} | ${all}`
+      : all || MSG.noAnswer.kk,
   );
 }
 
@@ -527,13 +597,11 @@ function gate(src: string, candidate: string, to: "en" | "kk" | "ru"): GateFail 
     return "translit";
   }
 
-  // And the case both of the above miss: a Cyrillic term whose Cyrillic
-  // "translation" into the other Cyrillic language is the same respelling.
-  // "шаңырақ" → "шангри-ла" is not Russian for anything.
-  if (to !== "en" && hasCyrillic(s) && hasCyrillic(c)) {
-    const both = (x: string) => romaniseWith(x, TRANSLIT_LOOSE);
-    if (similarity(both(s), both(c)) >= 0.78) return "identity";
-  }
+  // Deliberately NOT refused: a Kazakh word answered in Russian with the same
+  // word respelled. Russian really does borrow "домбыра" as "домбра" and
+  // "тұсаукесер" as "тусаукесер", so that shape is a correct translation as
+  // often as it is a lazy one. The English side is where the dictionary is
+  // actually protected, and it is checked above.
 
   // LENGTH. A one-word term does not translate into a sentence, and nothing
   // here should be five times the length of what was asked.
@@ -720,6 +788,42 @@ const secondPrompt = (term: string) =>
   `Answer with the meaning, never with the word rewritten in Latin letters.\n` +
   `Return ONLY {"en":"..."}. If you do not know it, return {"en":""}.`;
 
+/// The tie-breaker. Two models disagreeing is not evidence that either is
+/// wrong -- "шаңырақ" is honestly both "yurt crown" and "home", and the old
+/// code refused the word outright for it, which is the "Аударма табылмады"
+/// dead end. A third model decides instead.
+const arbiterPrompt = (term: string, a: string, b: string) =>
+  `Two translators disagree about the word "${term}".
+` +
+  `One says it means "${a}". The other says "${b}".
+` +
+  `Which is right? If neither is, give the correct English meaning yourself.
+` +
+  `A romanisation of the term in Latin letters is never a valid answer.
+` +
+  `Return ONLY {"en":"..."}.`;
+
+/// The one question the transliteration test cannot answer for itself.
+///
+/// "shamshyraq" for "шамшырақ" is a respelling and must be refused. "dombra"
+/// for "домбыра" is ALSO a respelling -- and it is the correct English word,
+/// because English borrowed the instrument along with its name. Structurally
+/// the two are identical: same script, same length, same near-perfect
+/// romanisation score. Nothing about the strings tells them apart.
+///
+/// What does tell them apart is whether English actually has the word, so
+/// that is what gets asked, and only on the candidates the gate stopped.
+const loanwordPrompt = (term: string, candidate: string) =>
+  `Is "${candidate}" a real English word that appears in English dictionaries,
+` +
+  `or is it merely the Kazakh word "${term}" rewritten in Latin letters?
+` +
+  `Words like "dombra", "yurt" and "kumis" ARE real English borrowings.
+` +
+  `A spelling invented on the spot is not.
+` +
+  `Return ONLY {"real": true or false, "en": "the correct English meaning if it is not real"}.`;
+
 const enrichPrompt = (en: string, kk: string) =>
   `For the English word "${en}" (Kazakh: "${kk}") return ONLY raw JSON with fields:\n` +
   `  definition_en - short English definition (max 15 words)\n` +
@@ -735,6 +839,12 @@ const enrichPrompt = (en: string, kk: string) =>
 /// caller: a partial entry is better than an error.
 async function fillGaps(entry: Entry): Promise<Entry> {
   if (isComplete(entry)) return entry;
+  // Nothing to fill the gaps WITH. Walking the chain again to rediscover that
+  // is six seconds spent on a foregone conclusion.
+  if (chain("", 0, 0, false).every(
+        (a) => (cooldownUntil.get(a.id.split("/")[0]) ?? 0) > Date.now())) {
+    return entry;
+  }
   const en = clean(entry.en), kk = clean(entry.kk);
   if (!en) return entry;
   try {
@@ -830,6 +940,11 @@ Deno.serve(async (req) => {
         openrouter: OPENROUTER_KEY.length > 0,
         service_key: SERVICE_KEY.length > 0,
         order: chain("", 0, 0, true).map((a) => a.id),
+        cooling: Object.fromEntries(
+          [...cooldownUntil.entries()]
+            .filter(([, t]) => t > Date.now())
+            .map(([v, t]) => [v, Math.round((t - Date.now()) / 1000)]),
+        ),
       });
     }
 
@@ -837,7 +952,7 @@ Deno.serve(async (req) => {
     //
     //   1. the shared dictionary, but only an EXACT row that is COMPLETE
     //   2. two models at once — one full entry, one second opinion
-    //   3. the gate, then agreement
+    //   3. the gate, then agreement, then a third model to break a tie
     //   4. whatever is still blank gets filled
     //   5. the keyless services, if every model is spent
     if (task === "translate") {
@@ -874,12 +989,12 @@ Deno.serve(async (req) => {
       // whole extra round trip AFTER the first answer; asked in parallel it
       // is free in wall-clock terms.
       const primaryChain = chain(translatePrompt(term), 0.2, 1024, true);
-      const first = completeFrom(primaryChain);
+      const first = withDeadline(completeFrom(primaryChain), TRANSLATE_DEADLINE);
       const secondChain = chain(secondPrompt(term), 0.1, 400, true);
       const second = secondChain.length > 1
         // A different model from the one the primary will use, so agreement
         // means two opinions rather than one model asked twice.
-        ? completeFrom(secondChain.slice(1)).catch(() => null)
+        ? withDeadline(completeFrom(secondChain.slice(1)).catch(() => null), SECOND_DEADLINE)
         : Promise.resolve(null);
 
       let parsed: Entry | null = null;
@@ -887,6 +1002,7 @@ Deno.serve(async (req) => {
       let llmError = "";
       try {
         const r = await first;
+        if (r === null) throw new Error(`timeout ${TRANSLATE_DEADLINE}ms`);
         usedModel = r.model;
         parsed = parseJson(r.text) as Entry;
       } catch (e) {
@@ -906,7 +1022,7 @@ Deno.serve(async (req) => {
           await saveEntry(admin, filled, clean(partial.source) || "ai");
           return ok({ source: "cache", entry: filled, note: llmError });
         }
-        const basic = await basicEntry(term);
+        const basic = await withDeadline(basicEntry(term), BASIC_DEADLINE);
         if (basic) {
           const filled = await fillGaps(basic as Entry);
           const saved = isComplete(filled) ? await saveEntry(admin, filled, "basic") : null;
@@ -924,7 +1040,35 @@ Deno.serve(async (req) => {
       // 3. The gate, before anything is written. This answer is about to
       // become the shared dictionary's answer for everybody.
       const candidate = target === "en" ? en : kk;
-      const failed = gate(term, candidate, target);
+      let failed = gate(term, candidate, target);
+
+      // A "translit" verdict is the one the gate can get wrong in the
+      // learner's favour as well as against them, so it is the one verdict
+      // worth a second look. Everything else stands.
+      if (failed === "translit" && target === "en") {
+        try {
+          const check = await withDeadline(
+            completeFrom(chain(loanwordPrompt(term, candidate), 0.1, 300, true)),
+            ARBITER_DEADLINE,
+          );
+          if (check !== null) {
+            const j = parseJson(check.text) as Entry;
+            if (j?.real === true) {
+              failed = null;                    // a genuine borrowing
+            } else {
+              const better = clean(j?.en);
+              if (better && gate(term, better, "en") === null) {
+                parsed = { ...parsed, en: better };
+                failed = null;                  // it named the real word
+              }
+            }
+          }
+        } catch {
+          // No answer means the gate's verdict stands, which is the safe way
+          // round: a refused word is a gap, a wrong word is a lie.
+        }
+      }
+
       if (failed !== null) {
         await reportRejection(admin, term, candidate, failed, target, usedModel);
         return ok({
@@ -934,6 +1078,7 @@ Deno.serve(async (req) => {
           message: say("noTranslation", lang),
         });
       }
+      const finalEn = clean(parsed?.en) || en;
       // The Russian side was never gated at all, which is how "шангри-ла"
       // was going to be stored next to "shangri-la".
       const ru = clean(parsed?.ru);
@@ -951,27 +1096,53 @@ Deno.serve(async (req) => {
       }
       if (otherEn && target === "en") {
         const a = otherEn.replace(/[^a-z]/g, "");
-        const b = en.toLowerCase().replace(/[^a-z]/g, "");
+        const b = finalEn.toLowerCase().replace(/[^a-z]/g, "");
         // Either the same word, or one contains the other — models answer
         // "lighthouse" and "lighthouse, beacon" for the same term.
         agreed = similarity(a, b) >= 0.6 || a.includes(b) || b.includes(a);
       }
 
+      // A disagreement is a question, not a verdict. Ask a third model which
+      // of the two is right; whichever it backs is the one that gets
+      // published. Only a candidate that fails the STRUCTURAL gate is ever
+      // refused outright -- that is the transliteration case, and it is the
+      // only one where the honest answer is that there is no answer.
+      let publishable = true;
       if (!agreed) {
-        await reportRejection(admin, term, `${en} / ${otherEn}`, "disagree", target, usedModel);
-        return ok({
-          source: "rejected",
-          reason: "disagree",
-          entry: null,
-          message: say("noTranslation", lang),
-        });
+        await reportRejection(admin, term, `${finalEn} / ${otherEn}`, "disagree", target, usedModel);
+        publishable = false;
+        try {
+          const verdict = await withDeadline(
+            completeFrom(
+              chain(arbiterPrompt(term, finalEn, otherEn), 0.1, 300, true),
+              new Set([usedModel]),
+            ),
+            ARBITER_DEADLINE,
+          );
+          if (verdict === null) throw new Error("arbiter timeout");
+          const pick = clean((parseJson(verdict.text) as Entry).en);
+          if (pick && gate(term, pick, "en") === null) {
+            const flat = (x: string) => x.toLowerCase().replace(/[^a-z]/g, "");
+            const backsPrimary = similarity(flat(pick), flat(finalEn)) >= 0.6 ||
+              flat(pick).includes(flat(finalEn)) || flat(finalEn).includes(flat(pick));
+            if (!backsPrimary) {
+              // The arbiter named a different word; that word is the answer.
+              parsed = { ...parsed, en: pick };
+            }
+            publishable = true;
+          }
+        } catch {
+          // No arbiter available. The answer still passed the structural
+          // gate, so the learner gets it -- it simply does not go into the
+          // dictionary everybody shares on one model's word alone.
+        }
       }
 
       // 4. Fill whatever is blank, merging anything the stored row already
       // had — a moderator's correction outranks a fresh model answer.
       let entry: Entry = {
         ...parsed,
-        en,
+        en: clean(parsed?.en) || finalEn,
         kk,
         ru: ruBad === null ? ru : "",
       };
@@ -987,9 +1158,12 @@ Deno.serve(async (req) => {
       }
       entry = await fillGaps(entry);
 
-      const saved = await saveEntry(admin, entry, "ai");
+      // Unendorsed answers are shown but not stored. The learner is not left
+      // empty-handed, and one model's guess does not become everybody's
+      // dictionary entry.
+      const saved = publishable ? await saveEntry(admin, entry, "ai") : null;
       return ok({
-        source: "ai",
+        source: publishable ? "ai" : "unverified",
         model: usedModel,
         entry: saved && typeof saved === "object"
           ? { ...(saved as Entry), ru: clean(entry.ru) || (saved as Entry).ru }

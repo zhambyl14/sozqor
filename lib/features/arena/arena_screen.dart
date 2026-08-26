@@ -444,23 +444,46 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         ),
         const SizedBox(height: 16),
 
-        // The rating and the room it puts you in, read together. With the
-        // duel card between them they were two unrelated numbers on one page.
-        _RatingPanel(
-          elo: profile?.elo ?? 1000,
-          rank: profile?.rankTitle ?? '—',
-          played: played, won: won, lost: lost),
+        // The rating and the room it puts you in, on one line: the number
+        // takes the quarter it needs and the league takes the rest. Stacked
+        // as two full cards they were two unrelated blocks, and the page
+        // spent a screen and a half before reaching anything you could do.
+        // SqEqualRow, not a bare stretching Row: this is a direct child of a
+        // scroll view, and a stretching Row there lays its children out at
+        // infinite height. The project has a test that catches exactly this.
+        SqEqualRow(
+          children: [
+            SizedBox(
+              width: 104,
+              child: _RatingPanel(
+                narrow: true,
+                elo: profile?.elo ?? 1000,
+                rank: profile?.rankTitle ?? '—',
+                played: played, won: won, lost: lost),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _LeagueCard(
+                rows: league,
+                me: myRow,
+                onTap: () async {
+                  if (!await requireAccount(
+                      context, ref, GuestFeature.league)) {
+                    return;
+                  }
+                  if (!context.mounted) return;
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const LeagueScreen()));
+                }),
+            ),
+          ],
+        ),
         const SizedBox(height: 9),
 
-        _LeagueCard(
-          rows: league,
-          me: myRow,
-          onTap: () async {
-            if (!await requireAccount(context, ref, GuestFeature.league)) return;
-            if (!context.mounted) return;
-            await Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const LeagueScreen()));
-          }),
+        // The explanation both of them need, folded away until it is asked
+        // for. It used to live inside the rating card, which is now a column
+        // barely wide enough for the number.
+        const _HowBattlesWork(),
         const SizedBox(height: 14),
 
         // The daily challenge used to sit here as well as inside today's
@@ -585,9 +608,19 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
 class _RatingPanel extends StatefulWidget {
   final int elo, played, won, lost;
   final String rank;
+
+  /// A quarter of a row instead of the whole of one.
+  ///
+  /// The rating and the league were two full-width cards stacked, and the
+  /// number is the thing this screen is about — at this width it is the only
+  /// thing on the card, with the league standing beside it rather than
+  /// underneath.
+  final bool narrow;
+
   const _RatingPanel({
     required this.elo, required this.rank,
-    required this.played, required this.won, required this.lost});
+    required this.played, required this.won, required this.lost,
+    this.narrow = false});
 
   @override
   State<_RatingPanel> createState() => _RatingPanelState();
@@ -613,6 +646,55 @@ class _RatingPanelState extends State<_RatingPanel> {
     final tierIndex = elo >= 1500 ? 4 : elo >= 1300 ? 3
         : elo >= 1150 ? 2 : elo >= 1000 ? 1 : 0;
     final tint = AppColors.tiers[tierIndex];
+
+    if (widget.narrow) {
+      return SqPanel(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SqEyebrow(tr('Рейтинг')),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SqNum('$elo',
+                size: 30, letterSpacing: -1, height: 1,
+                color: AppColors.text(d)),
+            ),
+            const SizedBox(height: 8),
+            // Won against lost, as a bar rather than two more numbers: at
+            // this width there is room for a shape and not for a sentence.
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: SizedBox(
+                height: 6,
+                child: played == 0
+                    ? Container(color: AppColors.muted(d))
+                    : Row(
+                        children: [
+                          Expanded(
+                            flex: won.clamp(0, 9999) + 1,
+                            child: Container(color: AppColors.green)),
+                          Expanded(
+                            flex: lost.clamp(0, 9999) + 1,
+                            child: Container(color: AppColors.red)),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(trp('{n} ойын · {w} жеңіс',
+                {'n': '$played', 'w': '$won'}),
+              style: TextStyle(
+                fontSize: 10.5, height: 1.3,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text3(d))),
+          ],
+        ),
+      );
+    }
 
     return SqPanel(
       child: Column(
@@ -1521,6 +1603,112 @@ class _FriendSheetState extends State<_FriendSheet> {
             const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "How does a battle work?", folded away until somebody asks.
+///
+/// It used to live at the foot of the rating card. That card is now a narrow
+/// column with room for one number, so the explanation moved out and sits
+/// under both it and the league — which is honest, because it explains the
+/// relationship between the two.
+class _HowBattlesWork extends StatefulWidget {
+  const _HowBattlesWork();
+
+  @override
+  State<_HowBattlesWork> createState() => _HowBattlesWorkState();
+}
+
+class _HowBattlesWorkState extends State<_HowBattlesWork> {
+  bool _open = false;
+
+  static List<(String, String, String)> get _steps => [
+    ('1', tr('Қарсылас табылады'), tr('рейтингі жақын ойыншы')),
+    ('2', tr('10 сұрақ, екеуіңе бірдей'), tr('кім жылдам — сол алда')),
+    ('3', tr('Рейтинг өзгереді'), tr('жеңсең +, жеңілсең −')),
+    ('4', tr('Лига рейтингпен ашылады'), tr('әр лиганың өз шегі бар')),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return SqPanel(
+      radius: 16,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _open = !_open),
+            child: Row(
+              children: [
+                Icon(PhosphorIconsFill.info,
+                  size: 15, color: AppColors.text3(d)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(tr('Баттл қалай өтеді?'),
+                    style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w800,
+                      color: AppColors.text2(d))),
+                ),
+                Icon(_open
+                    ? PhosphorIconsBold.caretUp
+                    : PhosphorIconsBold.caretDown,
+                  size: 13, color: AppColors.text4(d)),
+              ],
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: !_open
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final step in _steps)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 9),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SqNum(step.$1,
+                                  size: 12, color: AppColors.text4(d)),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(step.$2,
+                                        style: TextStyle(
+                                          fontSize: 12.5, height: 1.3,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.text(d))),
+                                      Text(step.$3,
+                                        style: TextStyle(
+                                          fontSize: 11.5, height: 1.3,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.text3(d))),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }

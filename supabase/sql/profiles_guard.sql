@@ -62,6 +62,11 @@ begin
   new.equipped_banner := old.equipped_banner;
   new.equipped_badge  := old.equipped_badge;
   new.equipped_aura   := old.equipped_aura;
+  -- The friend code is an identifier, so it is assigned once by
+  -- my_friend_code() (SECURITY DEFINER, which this guard does not fire for)
+  -- and never writable by the account it belongs to. Without this line a
+  -- learner could PATCH their own row and take somebody else's code.
+  new.friend_code     := old.friend_code;
 
   return new;
 end;

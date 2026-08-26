@@ -1912,3 +1912,14 @@ class SqSheetGrip extends StatelessWidget {
     ),
   );
 }
+
+/// A nine-digit friend code, grouped the way a phone number is.
+///
+/// "482739154" is nine characters nobody can read back correctly;
+/// "482 739 154" is three chunks anybody can. Anything that is not nine
+/// digits is returned untouched rather than mangled into groups.
+String sqFriendCode(String? raw) {
+  final d = (raw ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+  if (d.length != 9) return raw ?? '';
+  return '${d.substring(0, 3)} ${d.substring(3, 6)} ${d.substring(6)}';
+}

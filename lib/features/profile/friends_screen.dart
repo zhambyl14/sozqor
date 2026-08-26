@@ -5,6 +5,7 @@
 // nobody notices is the same as no invite at all.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -69,12 +70,28 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
   @override
   void dispose() { _search.dispose(); super.dispose(); }
 
-  /// Shares the learner's own @username so a friend can find them the same
+  /// This account's permanent nine-digit code.
+  ///
+  /// Null only while the first request is in flight; every account has one
+  /// and it never changes, which is the entire reason it replaced the
+  /// username as the way people find each other.
+  String? _code;
+
+  Future<void> _loadCode() async {
+    final code = await ref.read(boardRepoProvider).myFriendCode();
+    if (mounted) setState(() => _code = code);
+  }
+
+  /// Shares the learner's own code so a friend can find them the same
   /// way this screen finds others.
   Future<void> _shareUsername() async {
-    final username = ref.read(myProfileProvider).valueOrNull?.username ?? '';
-    if (username.isEmpty) return;
-    await Share.share(trp('Мені SozQor-да @{p1} деп тап', {'p1': username}));
+    final code = _code;
+    if (code == null || code.isEmpty) {
+      if (mounted) sqSnack(context, tr('Код әлі жүктелмеді'), error: true);
+      return;
+    }
+    await Share.share(
+        trp('Мені SozQor-да {p1} кодымен тап', {'p1': sqFriendCode(code)}));
   }
 
   Future<void> _find() async {
@@ -236,6 +253,12 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadCode();
+  }
+
+  @override
   Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
     final d = isDark(context);
@@ -337,7 +360,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                     fontSize: 13.5, fontWeight: FontWeight.w600,
                     color: AppColors.text(d)),
                   decoration: InputDecoration(
-                    hintText: tr('Логин немесе есім'),
+                    hintText: tr('Дос коды: 482 739 154'),
                     filled: false,
                     isDense: true,
                     border: InputBorder.none,
@@ -362,23 +385,57 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 10),
-        Align(
-          alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onTap: _shareUsername,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(PhosphorIconsBold.shareNetwork,
-                  size: 14, color: AppColors.primary),
-                const SizedBox(width: 5),
-                Text(tr('Логиныңды бөліс'),
-                  style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700,
-                    color: AppColors.primary)),
-              ],
-            ),
+        const SizedBox(height: 12),
+
+        // The learner's own code, big enough to read out. It used to be a
+        // share link and nothing else: the handle existed only inside the
+        // OS share sheet, so somebody sitting next to a friend had no way to
+        // simply tell them.
+        SqPanel(
+          radius: 18,
+          padding: const EdgeInsets.all(15),
+          fill: AppColors.soft(AppColors.primary, d),
+          border: AppColors.line(AppColors.primary, d),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SqEyebrow(tr('Менің кодым')),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: _code == null
+                        ? const SqShimmer(height: 26)
+                        : SelectableText(
+                            sqFriendCode(_code),
+                            style: TextStyle(
+                              fontSize: 22, letterSpacing: 1.5,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.text(d)),
+                          ),
+                  ),
+                  const SizedBox(width: 8),
+                  SqSquareButton(PhosphorIconsBold.copy,
+                    size: 36,
+                    onTap: _code == null ? null : () async {
+                      await Clipboard.setData(ClipboardData(text: _code!));
+                      if (context.mounted) {
+                        sqSnack(context, tr('Код көшірілді'));
+                      }
+                    }),
+                  const SizedBox(width: 7),
+                  SqSquareButton(PhosphorIconsBold.shareNetwork,
+                    size: 36,
+                    onTap: _code == null ? null : _shareUsername),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(tr('Осы кодты досыңа айт — ол сені осылай табады'),
+                style: TextStyle(
+                  fontSize: 11.5, height: 1.35, fontWeight: FontWeight.w600,
+                  color: AppColors.onSoft(AppColors.primary, d))),
+            ],
           ),
         ),
         const SizedBox(height: 16),

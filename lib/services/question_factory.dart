@@ -121,6 +121,10 @@ class QuestionFactory {
 
       final q = _make(item, kind, allEntries, rng, nativeLang);
       if (q == null) continue;
+      // The last gate before a question reaches a learner. Whatever built it,
+      // it has to have enough options, and EXACTLY ONE of them has to be the
+      // answer — two correct options is a question nobody can get right.
+      if (!_answerable(q)) continue;
 
       out.add(q);
       recentWords.add(keyOf(item));
@@ -158,7 +162,10 @@ class QuestionFactory {
 
     switch (kind) {
       case QKind.kkEn:
-        final opts = _options(e.en, all.map((x) => x.en), rng, exclude: {own});
+        // A synonym IS a correct answer. Offering one as a distractor is the
+        // one kind of wrong option a learner cannot argue their way out of.
+        final opts = _options(e.en, all.map((x) => x.en), rng,
+            exclude: {own, ...e.synonyms});
         if (opts.length < _minOptions) return null;
         return Question(
           kind: kind, wordId: item.wordId,
@@ -231,8 +238,13 @@ class QuestionFactory {
       }
 
       case QKind.listening: {
+        // Same filter as enKk, for the same reason: native() substitutes
+        // Kazakh when a row has no Russian, and a Kazakh option sitting among
+        // three Russian ones gives the answer away as surely as it confuses.
         final opts = _options(
-            own, all.map((x) => x.native(lang)), rng, exclude: {e.en});
+            own,
+            all.where((x) => x.hasNative(lang)).map((x) => x.native(lang)),
+            rng, exclude: {e.en});
         if (opts.length < _minOptions) return null;
         return Question(
           kind: kind, wordId: item.wordId,
@@ -281,6 +293,19 @@ class QuestionFactory {
 
   static String _norm(String s) => s.trim().toLowerCase();
 
+  /// Two options are the same ANSWER when they are the same word, however
+  /// they happen to be written.
+  ///
+  /// `_norm` only lowered and trimmed, which let three shapes of broken
+  /// question through: "to run" beside "run", "post office" beside
+  /// "post-office", and "book." beside "book". Every one of them puts two
+  /// correct answers on screen and marks one of them wrong.
+  static String _answerKey(String s) {
+    var t = s.trim().toLowerCase();
+    if (t.startsWith('to ')) t = t.substring(3);
+    return t.replaceAll(RegExp(r'[^a-z\u0400-\u04ff0-9]'), '');
+  }
+
   /// English entries are stored as "to run"; most game surfaces want "run".
   static String _bare(String en) {
     final t = en.trim();
@@ -295,20 +320,45 @@ class QuestionFactory {
     Set<String> exclude = const {},
     int total = _minOptions,
   }) {
-    final seen = <String>{_norm(answer), ...exclude.map(_norm)};
+    final seen = <String>{_answerKey(answer), ...exclude.map(_answerKey)}
+      ..remove('');
     final pool = <String>[];
     for (final c in candidates) {
       final t = c.trim();
       if (t.isEmpty) continue;
-      if (seen.contains(_norm(t))) continue;
-      seen.add(_norm(t));
+      final k = _answerKey(t);
+      // An option that reduces to nothing has no text a learner could read.
+      if (k.isEmpty) continue;
+      if (seen.contains(k)) continue;
+      seen.add(k);
       pool.add(t);
     }
+    // Too few distractors is not a smaller question, it is a broken one —
+    // the caller drops the word rather than showing two options.
     if (pool.length < total - 1) return const [];
 
     pool.shuffle(rng);
     final picked = pool.take(total - 1).toList();
     return [answer.trim(), ...picked]..shuffle(rng);
+  }
+
+  /// Whether this question can actually be answered.
+  ///
+  /// Cheap and structural, and deliberately applied to every question rather
+  /// than to the kinds that looked risky: a rule that only runs where somebody
+  /// remembered to put it is a rule that will be missed the next time a
+  /// question kind is added.
+  static bool _answerable(Question q) {
+    if (q.kind == QKind.spelling) {
+      return q.letters.isNotEmpty && q.spellTarget.isNotEmpty;
+    }
+    if (q.options.length < _minOptions) return false;
+    if (q.options.any((o) => o.trim().isEmpty)) return false;
+    // No two options may reduce to the same word...
+    final keys = q.options.map(_answerKey).toSet();
+    if (keys.length != q.options.length) return false;
+    // ...and exactly one of them is right.
+    return q.options.where(q.isCorrect).length == 1;
   }
 
   /// Replaces the target word inside its example sentence with a blank.

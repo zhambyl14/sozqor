@@ -161,8 +161,20 @@ class BattleRepo {
   Future<Battle?> myOpenBattle() async {
     try {
       final row = await supa.rpc('my_open_battle');
-      if (row == null) return null;
-      return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+      if (row is! Map) return null;
+      final m = Map<String, dynamic>.from(row);
+
+      // A function returning a composite type does NOT come back as null when
+      // it selects no row — PostgREST hands over an object with every field
+      // set to null. Parsed straight, that becomes a Battle with no id and no
+      // questions, which is exactly the "Аяқталмаған баттл бар" card that
+      // opened onto "Бұл баттлдың сұрақтары бос".
+      if (m['id'] == null) return null;
+
+      final b = Battle.fromMap(m);
+      // And a battle with nothing to answer is not one worth returning to.
+      if (b.questions.isEmpty) return null;
+      return b;
     } catch (_) {
       return null;
     }

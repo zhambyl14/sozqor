@@ -177,6 +177,32 @@ class BoardRepo {
   Future<List<BoardRow>> friendRequests() async =>
       _rows(await supa.rpc('my_friend_requests'));
 
+  /// This account's permanent nine-digit friend code, assigned on first ask.
+  ///
+  /// A username was the handle before, and it is the worst possible one: it
+  /// changes, it is case-confusing, and a learner who never chose one had
+  /// nothing to give a friend at all. A number is read down a phone line.
+  Future<String?> myFriendCode() async {
+    try {
+      final code = await supa.rpc('my_friend_code');
+      return code?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Everything one profile shows about another, including which league they
+  /// are standing in and whether this user may add them.
+  Future<Map<String, dynamic>?> publicProfile(String userId) async {
+    try {
+      final row = await supa.rpc('public_profile', params: {'p_user': userId});
+      if (row == null) return null;
+      return Map<String, dynamic>.from(row as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Requests this user has sent and nobody has answered yet, so the button
   /// can say "sent" rather than offer to send again.
   Future<List<BoardRow>> sentRequests() async =>

@@ -27,6 +27,7 @@ import '../../data/models/battle.dart';
 import '../../data/repos/league_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../profile/public_profile_screen.dart';
 
 /// The band's own colour as the server sends it. The compiled palette is only
 /// a fallback for a band that arrives without one — it holds five shades for
@@ -307,7 +308,19 @@ class _Row extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = isDark(context);
 
-    return Container(
+    // Everybody in this room is somebody you are competing with, and until
+    // now there was no way to find out who any of them were. Tapping opens
+    // their profile — which is also where you can add them.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: row.isMe
+          ? null
+          : () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => PublicProfileScreen(
+                userId: row.userId,
+                fallbackName: row.displayName.isEmpty
+                    ? row.username : row.displayName))),
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
       decoration: BoxDecoration(
         color: row.isMe ? AppColors.soft(AppColors.primary, d) : null,
@@ -343,6 +356,7 @@ class _Row extends StatelessWidget {
             size: 13,
             color: row.isMe ? AppColors.primaryDeep : AppColors.text2(d)),
         ],
+        ),
       ),
     );
   }

@@ -24,6 +24,7 @@ import '../../data/models/profile.dart';
 import '../../data/repos/cosmetics_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../auth/guest_gate.dart';
 import 'worn_avatar.dart';
 
 /// Everything the screen needs, in one request each.
@@ -37,11 +38,21 @@ final _publicWornProvider =
   return all[userId];
 });
 
+/// The band the person is standing in, their code, and whether this user is
+/// allowed to add them.
+///
+/// A separate request from the profile row because it is computed — the band
+/// comes from the same league_bands() table the league screen reads, so the
+/// two can never drift into disagreeing about what "Алтын" means.
+final _publicMetaProvider =
+    FutureProvider.family<Map<String, dynamic>?, String>((ref, userId) =>
+        ref.watch(boardRepoProvider).publicProfile(userId));
+
 final _publicAchievementsProvider =
     FutureProvider.family<Set<String>, String>((ref, userId) =>
         ref.watch(profileRepoProvider).unlockedAchievements(userId));
 
-class PublicProfileScreen extends ConsumerWidget {
+class PublicProfileScreen extends ConsumerStatefulWidget {
   final String userId;
   /// Shown while the real row is in flight, so the screen opens with a name
   /// on it rather than a spinner — the caller always already knows this much.
@@ -51,11 +62,45 @@ class PublicProfileScreen extends ConsumerWidget {
     super.key, required this.userId, this.fallbackName});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PublicProfileScreen> createState() =>
+      _PublicProfileScreenState();
+}
+
+class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
+  bool _adding = false;
+  bool _asked = false;
+
+  /// Sends the request and says so. Reachable from anywhere a profile can be
+  /// opened — the league standings, a search result, the end of a match —
+  /// because "I just played somebody good" is exactly when you want to add
+  /// them and there was no way to.
+  Future<void> _addFriend() async {
+    if (_adding || _asked) return;
+    if (!await requireAccount(context, ref, GuestFeature.friends)) return;
+    if (!mounted) return;
+    setState(() => _adding = true);
+    try {
+      await ref.read(boardRepoProvider).sendFriendRequest(widget.userId);
+      if (mounted) {
+        setState(() => _asked = true);
+        sqSnack(context, tr('Достық сұранысы жіберілді'));
+      }
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.watch(langProvider); // repaint on a language switch
+    final userId = widget.userId;
+    final fallbackName = widget.fallbackName;
     final d = isDark(context);
     final async = ref.watch(_publicProfileProvider(userId));
     final worn = ref.watch(_publicWornProvider(userId)).valueOrNull;
+    final meta = ref.watch(_publicMetaProvider(userId)).valueOrNull;
     final unlocked =
         ref.watch(_publicAchievementsProvider(userId)).valueOrNull
             ?? const <String>{};
@@ -119,7 +164,82 @@ class PublicProfileScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+
+          // Which league they are standing in. A ladder nobody can see you on
+          // is not a ladder, and this is the only place another person could
+          // ever be seen on it.
+          if (meta != null) ...[
+            SqPanel(
+              radius: 18,
+              padding: const EdgeInsets.all(14),
+              fill: AppColors.soft(
+                sqHexColor(meta['tier_colour']?.toString()) ?? AppColors.amber, d),
+              border: AppColors.line(
+                sqHexColor(meta['tier_colour']?.toString()) ?? AppColors.amber, d),
+              child: Row(
+                children: [
+                  SqTintBox(PhosphorIconsFill.shieldChevron,
+                    tint: sqHexColor(meta['tier_colour']?.toString())
+                        ?? AppColors.amber,
+                    size: 38, solid: true),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          trp('{tier} лигасы', {
+                            'tier': (AppLang.isRu
+                                ? meta['tier_ru'] : meta['tier_kk'])
+                                ?.toString() ?? '—'
+                          }),
+                          style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w800,
+                            color: AppColors.text(d))),
+                        Text(
+                          trp('Дос коды: {p1}',
+                            {'p1': sqFriendCode(meta['friend_code']?.toString())}),
+                          style: TextStyle(
+                            fontSize: 11.5, fontWeight: FontWeight.w600,
+                            color: AppColors.text3(d))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (meta['can_add'] == true && !_asked)
+              SqAction(tr('Дос қосу'),
+                icon: PhosphorIconsFill.userPlus,
+                busy: _adding,
+                onTap: _addFriend)
+            else if (_asked || meta['friendship'] == 'pending')
+              SqPanel(
+                radius: 14,
+                padding: const EdgeInsets.all(12),
+                child: Center(
+                  child: Text(tr('Достық сұранысы жіберілді'),
+                    style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700,
+                      color: AppColors.text3(d))),
+                ),
+              )
+            else if (meta['friendship'] == 'accepted')
+              SqPanel(
+                radius: 14,
+                padding: const EdgeInsets.all(12),
+                child: Center(
+                  child: Text(tr('Сендер доссыңдар'),
+                    style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700,
+                      color: AppColors.text3(d))),
+                ),
+              ),
+            const SizedBox(height: 14),
+          ],
 
           SqEqualRow(
             children: [

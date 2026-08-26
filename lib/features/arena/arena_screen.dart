@@ -34,7 +34,6 @@ import '../teams/teams_screen.dart';
 import 'leaderboard_screen.dart';
 import 'league_screen.dart';
 import 'match_result_screen.dart';
-import 'rematch_series.dart';
 import 'room_screen.dart';
 import 'tournament_screen.dart';
 
@@ -82,63 +81,43 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   }
 
   Future<void> _openBattle(Battle b) async {
-    final result = await Navigator.of(context)
+    await Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => BattleScreen(battle: b)));
     if (mounted) {
       refreshAll(ref);
       ref.invalidate(battleHistoryProvider);
       ref.invalidate(pendingInvitesProvider);
     }
-    if (result is! Battle || !mounted) return;
-
-    // EN-21. "Кек қайтару" used to pop the finished battle back here and then
-    // start a fresh matchmaking search — which threw away the one thing a
-    // rematch is for, the person you had just played. A series keeps them.
-    final uid = currentUid ?? '';
-    final rematch = ref.read(rematchProvider.notifier);
-    var series = ref.read(rematchProvider);
-
-    if (series == null || series.opponentId != (result.oppId(uid) ?? 'bot')) {
-      rematch.start(result, uid,
-        result.mode == 'bot'
-            ? (result.botName ?? tr('Бот'))
-            : tr('Қарсылас'));
-    }
-    rematch.record(result, uid);
-    series = ref.read(rematchProvider);
-
-    // Decided, so the series ends with the line the PRD asks for rather than
-    // quietly rolling into a fourth game.
-    if (series != null && series.isDecided) {
-      final won = series.iWonSeries;
-      sqSnack(context, won == null
-          ? trp('Серия {s} есебімен тең аяқталды', {'s': series.scoreline})
-          : won
-              ? trp('{s} есебімен жеңдің!', {'s': series.scoreline})
-              : trp('{s} есебімен ұтылдың', {'s': series.scoreline}));
-      rematch.clear();
-      return;
-    }
-
-    // The same opponent, one more game.
-    if (result.mode == 'ranked') {
-      await _startRanked();
-    } else if (result.mode == 'bot') {
-      await _startBot();
-    } else if (result.mode == 'friend') {
-      await _rematchFriend(result);
-    }
+    // A finished battle used to chain straight into the next one from here:
+    // ranked called _startRanked(), which is ordinary matchmaking, so the
+    // "rematch" was a fresh search against whoever happened to be queuing.
+    // The rematch now lives entirely on the battle screen, where it is an
+    // OFFER both players have to make and the next game arrives already
+    // paired against the same person. There is nothing left to chain.
   }
 
-  /// Starts a fresh no-code friend battle against whoever was on the other
-  /// side of [finished] — used both for "Кек қайтару" on a finished friend
-  /// match and for the direct challenge action on a history row.
-  Future<void> _rematchFriend(Battle finished) async {
-    final uid = currentUid;
-    final opponentId = uid == null ? null : finished.oppId(uid);
-    if (opponentId == null || !mounted) return;
+  /// Rings whoever was on the other side of [finished] and waits for them to
+  /// answer.
+  ///
+  /// This never opens a battle screen on its own. The old version created the
+  /// match and dropped this player straight into it, so a friend who was
+  /// making tea arrived to find a game they had already lost.
+  Future<void> _inviteFriend(String opponentId) async {
+    if (!mounted) return;
     setState(() => _busy = true);
     try {
+      final repo = ref.read(battleRepoProvider);
+
+      // Asked before the invitation is built, so "they are in a match" is
+      // said in half a second rather than after fifteen of silence.
+      if (await repo.isBusy(opponentId)) {
+        if (mounted) {
+          sqSnack(context, tr('Досың қазір бос емес — басқа ойында'),
+              error: true);
+        }
+        return;
+      }
+
       final questions = await _buildQuestions();
       if (questions.length < 5) {
         if (mounted) {
@@ -147,14 +126,31 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         return;
       }
       final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
-      final battle = await ref.read(battleRepoProvider).createFriendBattle(
-        questions: questions, cefr: cefr, targetUserId: opponentId);
-      if (mounted) await _openBattle(battle);
+      final invited = await repo.inviteFriend(
+          targetUserId: opponentId, questions: questions, cefr: cefr);
+      if (!mounted) return;
+
+      final accepted = await showModalBottomSheet<Battle>(
+        context: context,
+        isDismissible: false,
+        enableDrag: false,
+        isScrollControlled: true,
+        builder: (_) => _InviteWaitSheet(battle: invited),
+      );
+      if (accepted != null && mounted) await _openBattle(accepted);
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// The history row's "Қайта шақыру" action.
+  Future<void> _rematchFriend(Battle finished) async {
+    final uid = currentUid;
+    final opponentId = uid == null ? null : finished.oppId(uid);
+    if (opponentId == null) return;
+    await _inviteFriend(opponentId);
   }
 
   Future<void> _start() async {
@@ -215,6 +211,30 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Says yes. The battle only becomes `active` — for BOTH players — here.
+  Future<void> _acceptInvite(Battle b) async {
+    try {
+      final live = await ref.read(battleRepoProvider)
+          .respondToInvite(b.id, true);
+      if (!mounted) return;
+      ref.invalidate(pendingInvitesProvider);
+      if (live.status == 'active') {
+        await _openBattle(live);
+      } else {
+        sqSnack(context, tr('Шақыру ескірді'), error: true);
+      }
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    }
+  }
+
+  Future<void> _declineInvite(Battle b) async {
+    try {
+      await ref.read(battleRepoProvider).declineInvite(b.id);
+    } catch (_) {/* saying no is never worth an error message */}
+    if (mounted) ref.invalidate(pendingInvitesProvider);
   }
 
   Future<void> _friendSheet() async {
@@ -296,7 +316,10 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
 
         if (invites.isNotEmpty) ...[
           for (final b in invites) ...[
-            _InviteCard(battle: b, onPlay: () => _openBattle(b)),
+            _InviteCard(
+              battle: b,
+              onAccept: () => _acceptInvite(b),
+              onDecline: () => _declineInvite(b)),
             const SizedBox(height: 11),
           ],
         ],
@@ -904,10 +927,61 @@ class _TeamCard extends ConsumerWidget {
 
 // ── Invite + history ───────────────────────────────────────
 
-class _InviteCard extends StatelessWidget {
+/// An invitation waiting for THIS player's answer.
+///
+/// Two buttons and a clock. The clock matters: the person who sent it is
+/// looking at a spinner, so an invitation that could sit unanswered for an
+/// hour would make ringing a friend useless. Fifteen seconds, then it
+/// declines itself.
+class _InviteCard extends StatefulWidget {
   final Battle battle;
-  final VoidCallback onPlay;
-  const _InviteCard({required this.battle, required this.onPlay});
+  final Future<void> Function() onAccept;
+  final Future<void> Function() onDecline;
+  const _InviteCard({
+    required this.battle,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  @override
+  State<_InviteCard> createState() => _InviteCardState();
+}
+
+class _InviteCardState extends State<_InviteCard> {
+  Timer? _tick;
+  late int _left = widget.battle.inviteSecondsLeft;
+  bool _answered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final left = widget.battle.inviteSecondsLeft;
+      setState(() => _left = left);
+      // Running out is an answer too, and it has to be SENT: the two-minute
+      // silence that stops a friend ringing again is recorded by the decline,
+      // not by the clock reaching zero on this device.
+      if (left <= 0 && !_answered) {
+        _answered = true;
+        _tick?.cancel();
+        widget.onDecline();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _answer(bool yes) async {
+    if (_answered) return;
+    _answered = true;
+    _tick?.cancel();
+    await (yes ? widget.onAccept() : widget.onDecline());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -917,39 +991,206 @@ class _InviteCard extends StatelessWidget {
       padding: const EdgeInsets.all(15),
       fill: AppColors.soft(AppColors.red, d),
       border: AppColors.line(AppColors.red, d),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SqTintBox(PhosphorIconsFill.sword,
-            tint: AppColors.red, size: 40, solid: true),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(tr('Дос баттлы күтіп тұр'),
-                  style: TextStyle(
-                    fontSize: 13.5, fontWeight: FontWeight.w800,
-                    color: AppColors.text(d))),
-                Text(trp('Код: {code}', {'code': battle.inviteCode ?? '—'}),
-                  style: TextStyle(
-                    fontSize: 11.5, fontWeight: FontWeight.w600,
-                    color: AppColors.onSoft(AppColors.red, d))),
-              ],
+          Row(
+            children: [
+              const SqTintBox(PhosphorIconsFill.sword,
+                tint: AppColors.red, size: 40, solid: true),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(tr('Досың баттлға шақырып тұр'),
+                      style: TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w800,
+                        color: AppColors.text(d))),
+                    const SizedBox(height: 2),
+                    Text(trp('{n} секунд қалды', {'n': '$_left'}),
+                      style: TextStyle(
+                        fontSize: 11.5, fontWeight: FontWeight.w700,
+                        color: AppColors.onSoft(AppColors.red, d))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // The countdown drawn as a bar as well as a number: at a glance it
+          // says "hurry" without anybody having to read.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (_left / 15).clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: AppColors.line(AppColors.red, d),
+              valueColor: const AlwaysStoppedAnimation(AppColors.red),
             ),
           ),
-          SqLip(
-            fill: AppColors.red,
-            lip: AppColors.redDeep,
-            depth: 3,
-            radius: 12,
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-            onTap: onPlay,
-            child: Text(tr('Ойнау'),
-              style: const TextStyle(
-                fontSize: 12.5, fontWeight: FontWeight.w800,
-                color: Colors.white)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: SqLip(
+                  fill: AppColors.card(d),
+                  lip: AppColors.line(AppColors.ink, d),
+                  depth: 3,
+                  radius: 12,
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  onTap: () => _answer(false),
+                  child: Center(
+                    child: Text(tr('Бас тарту'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w800,
+                        color: AppColors.text(d))),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SqLip(
+                  fill: AppColors.red,
+                  lip: AppColors.redDeep,
+                  depth: 3,
+                  radius: 12,
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  onTap: () => _answer(true),
+                  child: Center(
+                    child: Text(tr('Қабылдау'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w800,
+                        color: Colors.white)),
+                  ),
+                ),
+              ),
+            ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the SENDER looks at while a friend decides.
+///
+/// It polls the row rather than assuming: the battle becomes `active` only
+/// when the other side accepts, so this sheet is the only thing standing
+/// between "I tapped a name" and "we are both playing". It closes with the
+/// battle on yes, and with nothing at all on no.
+class _InviteWaitSheet extends ConsumerStatefulWidget {
+  final Battle battle;
+  const _InviteWaitSheet({required this.battle});
+
+  @override
+  ConsumerState<_InviteWaitSheet> createState() => _InviteWaitSheetState();
+}
+
+class _InviteWaitSheetState extends ConsumerState<_InviteWaitSheet> {
+  Timer? _poll;
+  int _left = 15;
+  String? _outcome;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll = Timer.periodic(const Duration(milliseconds: 900), (_) => _check());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    if (!mounted) return;
+    setState(() => _left = widget.battle.inviteSecondsLeft);
+    try {
+      final live = await ref.read(battleRepoProvider).byId(widget.battle.id);
+      if (!mounted || live == null) return;
+      if (live.status == 'active') {
+        _poll?.cancel();
+        Navigator.of(context).pop(live);
+        return;
+      }
+      if (live.isDeclined) {
+        _poll?.cancel();
+        setState(() => _outcome = tr('Досың бас тартты'));
+        await Future<void>.delayed(const Duration(milliseconds: 1200));
+        if (mounted) Navigator.of(context).pop();
+      }
+    } catch (_) {/* a dropped poll is not worth an error message */}
+
+    if (_left <= 0 && _outcome == null && mounted) {
+      _poll?.cancel();
+      setState(() => _outcome = tr('Досың жауап бермеді'));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 26),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+        const SqSheetGrip(),
+        Text(tr('Шақыру жіберілді'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 19, fontWeight: FontWeight.w800,
+            letterSpacing: -0.4, color: AppColors.text(d))),
+        const SizedBox(height: 6),
+        if (_outcome == null) ...[
+          const Center(child: SizedBox(
+            width: 34, height: 34,
+            child: CircularProgressIndicator(strokeWidth: 3))),
+          const SizedBox(height: 16),
+          Text(tr('Досың жауабын күтіп тұрмыз. Ол қабылдаса, баттл екеуіңде '
+                  'бір уақытта басталады.'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13, height: 1.45, fontWeight: FontWeight.w600,
+              color: AppColors.text3(d))),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(trp('{n} секунд', {'n': '${_left.clamp(0, 15)}'}),
+              style: TextStyle(
+                fontSize: 22, fontWeight: FontWeight.w800,
+                color: AppColors.text(d))),
+          ),
+        ] else
+          Text(_outcome!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15, height: 1.4, fontWeight: FontWeight.w800,
+              color: AppColors.text(d))),
+        const SizedBox(height: 18),
+        SqLip(
+          fill: AppColors.card(d),
+          lip: AppColors.line(AppColors.ink, d),
+          depth: 3,
+          radius: 14,
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          onTap: () => Navigator.of(context).pop(),
+          child: Center(
+            child: Text(tr('Жабу'),
+              style: TextStyle(
+                fontSize: 13.5, fontWeight: FontWeight.w800,
+                color: AppColors.text(d))),
+          ),
+        ),
+        const SizedBox(height: 6),
         ],
       ),
     );

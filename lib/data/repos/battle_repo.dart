@@ -1,5 +1,6 @@
 // lib/data/repos/battle_repo.dart
 import '../../core/constants/game_meta.dart';
+import '../models/invite.dart';
 import '../models/battle.dart';
 import '../models/question.dart';
 import '../supa.dart';
@@ -52,10 +53,165 @@ class BattleRepo {
   }
 
   // ── Friend battles ─────────────────────────────────────
-  /// Creates a friend battle. With [targetUserId] the battle goes straight to
-  /// both players — no invite code to generate, share, or type — and shows up
-  /// for the target immediately as a pending invite. Without it, the battle
-  /// waits for anyone holding the invite code to join (the share-a-code flow).
+  // ── Friend battles ────────────────────────────────────
+  /// Rings a friend. The battle comes back in the `invited` state and plays
+  /// for NOBODY until they accept.
+  ///
+  /// This is the fix for the complaint that a friend battle "started by
+  /// itself": the old flow created an ACTIVE battle and dropped the sender
+  /// straight into it, so one person's tap began a two-person match and the
+  /// friend arrived to find it already over.
+  ///
+  /// Throws INVITE_ERR:busy when they are mid-match, INVITE_ERR:blocked with
+  /// a countdown when they have just turned an invitation down, and
+  /// INVITE_ERR:not_friend
+  /// when they are not on the list. humanError() turns all three into a
+  /// sentence the sender can act on.
+  Future<Battle> inviteFriend({
+    required String targetUserId,
+    required List<Question> questions,
+    required String cefr,
+  }) async {
+    final row = await supa.rpc('invite_friend_battle', params: {
+      'p_target': targetUserId,
+      'p_questions': questions.map((q) => q.toJson()).toList(),
+      'p_cefr': cefr,
+      'p_lang': AppLang.current,
+    });
+    return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+  }
+
+  /// Yes or no, from the person who was rung. A `false` here — or letting the
+  /// fifteen seconds run out, which the overlay reports as a decline — costs
+  /// the sender two minutes of silence, so nobody can ring twenty times.
+  Future<Battle> respondToInvite(String battleId, bool accept) async {
+    final row = await supa.rpc('respond_battle_invite', params: {
+      'p_battle': battleId,
+      'p_accept': accept,
+      'p_lang': AppLang.current,
+    });
+    return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+  }
+
+  /// What is ringing right now, with enough about the caller to draw the
+  /// banner without a second request.
+  Future<List<BattleInvite>> incomingInvites() async {
+    final rows = await supa.rpc('my_battle_invites');
+    return (rows as List? ?? const [])
+        .map((r) => BattleInvite.fromMap(Map<String, dynamic>.from(r as Map)))
+        .toList();
+  }
+
+  /// Whether this person can be rung at all. Asked before sending so the
+  /// caller is told "they are in a match" rather than watching an invitation
+  /// go unanswered for fifteen seconds.
+  Future<bool> isBusy(String userId) async {
+    try {
+      final res = await supa.rpc('user_busy', params: {'p_user': userId});
+      return res == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Rematch, agreed by both ───────────────────────────
+  /// Marks this player's side of a rematch offer.
+  ///
+  /// Returns the next battle ONLY once the other side has offered too, and
+  /// null while it is still one-sided. That null is the whole point: "Кек
+  /// қайтару" used to pop back to the arena and start ordinary
+  /// matchmaking, so a ranked rematch was against a stranger.
+  ///
+  /// Throws REMATCH_ERR:series_over once three games are played or one player
+  /// is two up. After that a new opponent is found the normal way and it is
+  /// not a rematch any more.
+  Future<Battle?> offerRematch(String battleId) async {
+    final row = await supa.rpc('offer_rematch', params: {'p_battle': battleId});
+    if (row == null) return null;
+    return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+  }
+
+  /// Where the best-of-three stands, read by BOTH clients from the same rows
+  /// instead of each keeping a private tally.
+  Future<SeriesState?> seriesState(String battleId) async {
+    try {
+      final row = await supa.rpc('series_state', params: {'p_battle': battleId});
+      if (row == null) return null;
+      return SeriesState.fromMap(Map<String, dynamic>.from(row as Map));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Presence ──────────────────────────────────────
+  /// The heartbeat. Called every few seconds from the battle screen; the
+  /// answer says whether the opponent has gone quiet (pause the clock) and
+  /// whether they have been quiet long enough for the win to be claimed.
+  Future<BattlePresence?> touch(String battleId) async {
+    try {
+      final row = await supa.rpc('touch_battle', params: {'p_battle': battleId});
+      return BattlePresence.fromMap(Map<String, dynamic>.from(row as Map));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The unfinished match to drop the learner back into when they reopen the
+  /// app, so a battle they were in the middle of is not simply lost.
+  Future<Battle?> myOpenBattle() async {
+    try {
+      final row = await supa.rpc('my_open_battle');
+      if (row == null) return null;
+      return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── After the match ─────────────────────────────────
+  /// Who you just played and whether you can add them, in one call so the
+  /// end-of-match card can draw both actions without guessing.
+  Future<Map<String, dynamic>?> opponentCard(String battleId) async {
+    try {
+      final row = await supa.rpc('opponent_card', params: {'p_battle': battleId});
+      if (row == null) return null;
+      return Map<String, dynamic>.from(row as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The whole vocabulary of the quick message. Canned on purpose: a phrase
+  /// nobody can write cannot be abuse, and tapping is faster than typing.
+  Future<List<QuickPhrase>> quickPhrases() async {
+    try {
+      final rows = await supa.rpc('quick_phrases');
+      return (rows as List? ?? const [])
+          .map((r) => QuickPhrase.fromMap(Map<String, dynamic>.from(r as Map)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> sendQuickMessage(String battleId, String phrase) =>
+      supa.rpc('send_battle_message',
+          params: {'p_battle': battleId, 'p_phrase': phrase});
+
+  Future<List<QuickMessage>> messagesFor(String battleId) async {
+    try {
+      final rows = await supa.rpc('battle_messages_for',
+          params: {'p_battle': battleId});
+      return (rows as List? ?? const [])
+          .map((r) => QuickMessage.fromMap(Map<String, dynamic>.from(r as Map)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// The code-sharing flow, unchanged: a battle anybody holding the code can
+  /// join. Kept because a group of friends in one room still wants it.
   Future<Battle> createFriendBattle({
     required List<Question> questions,
     required String cefr,
@@ -97,18 +253,19 @@ class BattleRepo {
         .eq('p2', uid)
         .map((rows) => rows
             .map((r) => Battle.fromMap(Map<String, dynamic>.from(r)))
-            .where((b) => b.mode == 'friend' && b.status == 'active')
-            .where((b) => !b.iAmDone(uid))
+            // `invited`, not `active`. An active row is a match already under
+            // way, and treating one as an invitation is exactly what let the
+            // sender start playing before anybody had agreed to anything.
+            .where((b) => b.mode == 'friend' && b.isInvited)
+            .where((b) => b.inviteSecondsLeft > 0)
             .toList());
   }
 
-  /// Turns down an invitation. The row is cancelled rather than deleted so
-  /// the sender's own stream sees it happen and can say what became of it —
-  /// which is how "your friend is busy" reaches them without a schema change.
-  Future<void> declineInvite(String battleId) async {
-    await supa.from('battles')
-        .update({'status': 'cancelled'}).eq('id', battleId);
-  }
+  /// Turns down an invitation. Goes through the RPC rather than writing the
+  /// row directly, because refusing is what starts the two-minute silence
+  /// that stops a friend ringing again the moment they are told no.
+  Future<void> declineInvite(String battleId) =>
+      respondToInvite(battleId, false).then((_) {});
 
   Stream<Battle?> watch(String id) => supa
       .from('battles')
@@ -163,8 +320,29 @@ class BattleRepo {
         .toList();
   }
 
-  /// Friend battles the user was invited to but has not played yet.
+  /// Invitations that are ringing right now — sent to this user or by them.
+  /// An `active` row is a match in progress and belongs on the battle screen,
+  /// not in a list of things waiting for an answer.
   Future<List<Battle>> pendingInvites() async {
+    final uid = currentUid;
+    if (uid == null) return [];
+    final rows = await supa
+        .from('battles')
+        .select()
+        .eq('mode', 'friend')
+        .eq('status', 'invited')
+        .or('p1.eq.$uid,p2.eq.$uid')
+        .order('created_at', ascending: false)
+        .limit(20);
+    return (rows as List)
+        .map((r) => Battle.fromMap(Map<String, dynamic>.from(r as Map)))
+        .where((b) => b.inviteSecondsLeft > 0)
+        .toList();
+  }
+
+  /// Friend battles that WERE accepted and then left unfinished. Separate
+  /// from [pendingInvites] because the two need different words on screen.
+  Future<List<Battle>> unfinishedFriendBattles() async {
     final uid = currentUid;
     if (uid == null) return [];
     final rows = await supa

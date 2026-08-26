@@ -27,6 +27,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../core/widgets/spelling_pad.dart';
 import '../../data/models/battle.dart';
+import '../../data/models/invite.dart';
 import '../../data/models/profile.dart';
 import '../../data/models/question.dart';
 import '../../data/supa.dart';
@@ -35,7 +36,6 @@ import '../../services/achievements.dart';
 import '../../data/repos/cosmetics_repo.dart';
 import '../../services/speech.dart';
 import '../profile/cosmetic_preview.dart';
-import 'rematch_series.dart';
 
 /// One finished round, for the post-match table.
 class _Round {
@@ -96,6 +96,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   bool _finished = false;
   bool _submitting = false;
   bool _oppFinished = false;
+
+  /// A rematch has been asked for and the other player has not answered yet.
+  bool _rematchWaiting = false;
+  Timer? _rematchPoll;
 
   /// The opponent left and the server awarded this match on their forfeit.
   bool _oppForfeited = false;
@@ -158,6 +162,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     _tick?.cancel();
     _botTimer?.cancel();
     _awaitOpp?.cancel();
+    _rematchPoll?.cancel();
     _watch?.cancel();
     if (_channel != null) supa.removeChannel(_channel!);
     Speech.instance.stop();
@@ -547,13 +552,76 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                       isBot: _isBot,
                       unlocked: _unlocked,
                       submitting: _submitting,
-                      onRematch: () => Navigator.of(context).pop(_battle),
+                      onRematch: _offerRematch,
+                      rematchWaiting: _rematchWaiting,
                       onClose: () => Navigator.of(context).pop(),
                     )
                   : _playing(me),
         ),
       ),
     );
+  }
+
+  /// Asks for a rematch, and keeps asking until the other side answers.
+  ///
+  /// `offer_rematch` is idempotent: it sets this player's flag and returns
+  /// the next battle the moment BOTH flags are set — whichever side calls it
+  /// second is the one that creates the row, and the other side picks it up
+  /// on its next poll. So polling the same call is the whole handshake.
+  Future<void> _offerRematch() async {
+    if (_rematchWaiting) return;
+    final repo = ref.read(battleRepoProvider);
+
+    if (_isBot) {
+      // Nothing to agree with. Straight back into another one.
+      if (mounted) Navigator.of(context).pop(_battle);
+      return;
+    }
+
+    setState(() => _rematchWaiting = true);
+    try {
+      final next = await repo.offerRematch(_battle.id);
+      if (!mounted) return;
+      if (next != null) {
+        _goToRematch(next);
+        return;
+      }
+      // Still one-sided. Wait for them, and give up after half a minute
+      // rather than leaving somebody staring at a spinner for ever.
+      var waited = 0;
+      _rematchPoll?.cancel();
+      _rematchPoll = Timer.periodic(const Duration(seconds: 2), (t) async {
+        waited += 2;
+        if (!mounted) { t.cancel(); return; }
+        try {
+          final b = await repo.offerRematch(_battle.id);
+          if (b != null && mounted) { t.cancel(); _goToRematch(b); return; }
+        } catch (e) {
+          t.cancel();
+          if (mounted) {
+            setState(() => _rematchWaiting = false);
+            sqSnack(context, humanError(e), error: true);
+          }
+          return;
+        }
+        if (waited >= 30 && mounted) {
+          t.cancel();
+          setState(() => _rematchWaiting = false);
+          sqSnack(context, tr('Қарсылас реваншқа келіспеді'));
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _rematchWaiting = false);
+        sqSnack(context, humanError(e), error: true);
+      }
+    }
+  }
+
+  void _goToRematch(Battle next) {
+    _rematchPoll?.cancel();
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => BattleScreen(battle: next)));
   }
 
   Widget _playing(Profile? me) {
@@ -946,7 +1014,12 @@ class _BattleResult extends ConsumerWidget {
   /// The wait ran out with nothing settled — see [_oppGaveUp].
   final bool oppGaveUp;
   final List<Achievement> unlocked;
-  final VoidCallback onRematch, onClose;
+  final Future<void> Function() onRematch;
+  final VoidCallback onClose;
+
+  /// This player has asked for a rematch and the other one has not answered
+  /// yet. The button becomes a wait rather than a second request.
+  final bool rematchWaiting;
 
   const _BattleResult({
     required this.battle, required this.uid,
@@ -955,6 +1028,7 @@ class _BattleResult extends ConsumerWidget {
     required this.rounds, required this.isBot,
     required this.unlocked, required this.submitting,
     required this.onRematch, required this.onClose,
+    this.rematchWaiting = false,
     this.oppForfeited = false, this.oppGaveUp = false});
 
   bool get _won  => oppFinished && myScore > oppScore;
@@ -1205,21 +1279,28 @@ class _BattleResult extends ConsumerWidget {
             padding: EdgeInsets.all(12),
             child: CircularProgressIndicator()))
         else ...[
-          // EN-21: a series against the same person, not a fresh search. The
-          // running score is on the button, so "one more game" and "I am 1:1
-          // and this decides it" are visibly different decisions.
-          Builder(builder: (_) {
-            final series = ref.watch(rematchProvider);
-            final live = series != null && !series.isDecided && series.played > 0;
-            return SqAction(
-              live
-                  ? trp('Тағы бір ойын · {s}', {'s': series.scoreline})
-                  : tr('Кек қайтару'),
+          // A rematch is an AGREEMENT. Pressing this asks; the next game
+          // exists only once the other player has asked too, and it is
+          // against them — not against whoever the queue turns up next,
+          // which is what "Кек қайтару" used to do.
+          if (!isBot) ...[
+            _RematchButton(
+              battle: battle,
+              waiting: rematchWaiting,
+              onTap: onRematch),
+            const SizedBox(height: 10),
+            // Two people who have just played each other are exactly the two
+            // people most likely to want to play again — and, right now, the
+            // only place in the app where they can say anything to each other.
+            _AfterMatch(battleId: battle.id),
+            const SizedBox(height: 10),
+          ] else ...[
+            SqAction(tr('Тағы ойнау'),
               icon: PhosphorIconsFill.sword,
               tone: SqTone.danger,
-              onTap: onRematch);
-          }),
-          const SizedBox(height: 10),
+              onTap: () => onRematch()),
+            const SizedBox(height: 10),
+          ],
           SqAction(tr('Аренаға қайту'),
             tone: SqTone.ghost, height: 48, onTap: onClose),
         ],
@@ -1227,4 +1308,266 @@ class _BattleResult extends ConsumerWidget {
     );
   }
 
+}
+
+/// "Кек қайтару", as an offer rather than a command.
+///
+/// The scoreline is read from the server so both phones show the same one,
+/// and the button says out loud that the other player has to agree — which
+/// is the part people were surprised by when a rematch simply started.
+class _RematchButton extends ConsumerStatefulWidget {
+  final Battle battle;
+  final bool waiting;
+  final Future<void> Function() onTap;
+  const _RematchButton({
+    required this.battle, required this.waiting, required this.onTap});
+
+  @override
+  ConsumerState<_RematchButton> createState() => _RematchButtonState();
+}
+
+class _RematchButtonState extends ConsumerState<_RematchButton> {
+  SeriesState? _series;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final st = await ref.read(battleRepoProvider).seriesState(widget.battle.id);
+    if (mounted) setState(() => _series = st);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    final st = _series;
+
+    // Three games and it is settled. A fourth would be a new series, and
+    // saying so is kinder than a button that errors when it is pressed.
+    if (st != null && st.decided) {
+      final won = st.iWonSeries;
+      return SqPanel(
+        radius: 16,
+        padding: const EdgeInsets.all(14),
+        fill: AppColors.soft(AppColors.amber, d),
+        border: AppColors.line(AppColors.amber, d),
+        child: Text(
+          won == null
+              ? trp('Серия {s} — тең', {'s': st.scoreline})
+              : won
+                  ? trp('Серияны {s} есебімен жеңдің!', {'s': st.scoreline})
+                  : trp('Серияда {s} есебімен ұтылдың', {'s': st.scoreline}),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13.5, height: 1.4, fontWeight: FontWeight.w800,
+            color: AppColors.text(d)),
+        ),
+      );
+    }
+
+    if (widget.waiting) {
+      return SqPanel(
+        radius: 16,
+        padding: const EdgeInsets.all(14),
+        fill: AppColors.soft(AppColors.red, d),
+        border: AppColors.line(AppColors.red, d),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 18, height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2.4)),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(tr('Қарсыластың келісуін күтудеміз'),
+                style: TextStyle(
+                  fontSize: 13, height: 1.35, fontWeight: FontWeight.w800,
+                  color: AppColors.text(d))),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final played = st?.played ?? 0;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SqAction(
+          played > 0
+              ? trp('Тағы бір ойын · {s}', {'s': st!.scoreline})
+              : tr('Кек қайтару'),
+          icon: PhosphorIconsFill.sword,
+          tone: SqTone.danger,
+          onTap: () => widget.onTap()),
+        const SizedBox(height: 6),
+        Text(tr('Екі ойыншы да келіскенде ғана басталады'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 11.5, height: 1.35, fontWeight: FontWeight.w600,
+            color: AppColors.text4(d))),
+      ],
+    );
+  }
+}
+
+/// The two things a match leaves behind: somebody worth adding, and something
+/// worth saying to them.
+///
+/// The phrases are a fixed list the server owns. Free text between strangers
+/// would need moderation this app has no room for, and a tap is faster than
+/// typing anyway.
+class _AfterMatch extends ConsumerStatefulWidget {
+  final String battleId;
+  const _AfterMatch({required this.battleId});
+
+  @override
+  ConsumerState<_AfterMatch> createState() => _AfterMatchState();
+}
+
+class _AfterMatchState extends ConsumerState<_AfterMatch> {
+  Map<String, dynamic>? _opp;
+  List<QuickPhrase> _phrases = const [];
+  List<QuickMessage> _messages = const [];
+  bool _sent = false;
+  bool _added = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final repo = ref.read(battleRepoProvider);
+    final opp = await repo.opponentCard(widget.battleId);
+    final ph = await repo.quickPhrases();
+    final ms = await repo.messagesFor(widget.battleId);
+    if (!mounted) return;
+    setState(() { _opp = opp; _phrases = ph; _messages = ms; });
+  }
+
+  Future<void> _send(QuickPhrase p) async {
+    setState(() => _sent = true);
+    try {
+      final repo = ref.read(battleRepoProvider);
+      await repo.sendQuickMessage(widget.battleId, p.code);
+      final ms = await repo.messagesFor(widget.battleId);
+      if (mounted) setState(() => _messages = ms);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _sent = false);
+        sqSnack(context, humanError(e), error: true);
+      }
+    }
+  }
+
+  Future<void> _addFriend() async {
+    final id = _opp?['user_id']?.toString();
+    if (id == null) return;
+    try {
+      await ref.read(boardRepoProvider).sendFriendRequest(id);
+      if (mounted) {
+        setState(() => _added = true);
+        sqSnack(context, tr('Достық сұранысы жіберілді'));
+      }
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final opp = _opp;
+    if (opp == null) return const SizedBox.shrink();
+    final d = isDark(context);
+    final canAdd = opp['can_add'] == true && !_added;
+    final name = (opp['display_name'] ?? opp['username'] ?? '').toString();
+
+    return SqPanel(
+      radius: 18,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text((opp['avatar_emoji'] ?? '🦊').toString(),
+                style: const TextStyle(fontSize: 26)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(name.isEmpty ? tr('Қарсылас') : name,
+                      style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w800,
+                        color: AppColors.text(d))),
+                    Text('@${opp['username'] ?? ''}',
+                      style: TextStyle(
+                        fontSize: 11.5, fontWeight: FontWeight.w600,
+                        color: AppColors.text4(d))),
+                  ],
+                ),
+              ),
+              if (canAdd)
+                SqLip(
+                  fill: AppColors.primary,
+                  lip: AppColors.primaryDeep,
+                  depth: 3,
+                  radius: 12,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  onTap: _addFriend,
+                  child: Text(tr('Дос қосу'),
+                    style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w800,
+                      color: Colors.white)),
+                ),
+            ],
+          ),
+          if (_messages.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final m in _messages)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  m.isMine ? '→ ${m.text}' : '← ${m.text}',
+                  style: TextStyle(
+                    fontSize: 12.5, height: 1.35, fontWeight: FontWeight.w600,
+                    color: AppColors.text2(d))),
+              ),
+          ],
+          if (!_sent && _phrases.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final ph in _phrases)
+                  SqLip(
+                    fill: AppColors.card(d),
+                    lip: AppColors.line(AppColors.ink, d),
+                    depth: 2,
+                    radius: 11,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11, vertical: 8),
+                    onTap: () => _send(ph),
+                    child: Text(ph.text,
+                      style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700,
+                        color: AppColors.text(d))),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }

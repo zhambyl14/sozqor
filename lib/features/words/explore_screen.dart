@@ -244,16 +244,29 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
       // with a word the learner saved long ago; the list must never grow a
       // duplicate and must never re-offer something already owned (EN-39).
       final known = _entries.map((e) => e.en.toLowerCase().trim()).toSet();
-      final added = fresh
+      final added = fresh.entries
           .where((e) => !_owned.contains(e.en.toLowerCase().trim()))
           .where((e) => known.add(e.en.toLowerCase().trim()))
           .toList();
 
       if (!mounted) return;
       setState(() => _entries = [..._entries, ...added]);
-      sqSnack(context, added.isNotEmpty
-          ? trp('Тағы {p1} сөз қосылды', {'p1': '${added.length}'})
-          : tr('Жаңа сөз табылмады, кейінірек көр'));
+
+      // "Жаңа сөз табылмады, кейінірек көр" used to be said whenever the list
+      // did not grow — including when the AI was simply busy, which is not
+      // the same thing at all and is what made the button look broken. Say
+      // what actually happened: the real error if there was one, and the
+      // "come back later" line only when the level genuinely has nothing
+      // left in it.
+      if (added.isNotEmpty) {
+        sqSnack(context, trp('Тағы {p1} сөз қосылды', {'p1': '${added.length}'}));
+      } else if (fresh.error != null) {
+        sqSnack(context, fresh.error!, error: true);
+      } else if ((_remaining ?? 0) > 0) {
+        sqSnack(context, tr('Бұл сөздер тізімде бар — төмен қарай айналдыр'));
+      } else {
+        sqSnack(context, tr('Бұл деңгейдегі сөздер бітті — деңгейді ауыстыр'));
+      }
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     } finally {

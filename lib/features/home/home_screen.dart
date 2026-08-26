@@ -354,7 +354,7 @@ class _Greeting extends ConsumerWidget {
 
 // ── Today's plan: the one dark block ───────────────────────
 
-class _TodayPlan extends ConsumerWidget {
+class _TodayPlan extends ConsumerStatefulWidget {
   final Profile? profile;
   final int due;
   final List<Quest> quests;
@@ -367,7 +367,28 @@ class _TodayPlan extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TodayPlan> createState() => _TodayPlanState();
+}
+
+class _TodayPlanState extends ConsumerState<_TodayPlan> {
+  /// Null until the learner opens or closes the checklist themselves.
+  ///
+  /// Six rows of it was most of the first screen, so the goal — the thing the
+  /// card is actually for — began below the fold. Folded, the count in the
+  /// header says everything the rows said at a glance.
+  ///
+  /// The one case it must not stay folded for is a finished quest whose
+  /// reward is still sitting there uncollected: a fold that hides a button
+  /// nobody knows about loses the learner their тәжірибе. So the default
+  /// follows the rewards, and an explicit tap overrides it either way.
+  bool? _openList;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+    final due = widget.due;
+    final quests = widget.quests;
+    final claimedQuests = widget.claimedQuests;
     final d = isDark(context);
     final progress = ref.watch(dailyProgressProvider).valueOrNull;
     final reviewed = progress?.wordsReviewed ?? 0;
@@ -379,6 +400,9 @@ class _TodayPlan extends ConsumerWidget {
     final beadsDone = (ratio * beads).round();
 
     final playedDaily = ref.watch(playedDailyProvider).valueOrNull ?? false;
+    final claimable = quests
+        .any((q) => q.done && !claimedQuests.contains(q.id));
+    final openList = _openList ?? claimable;
     final doneCount =
         quests.where((q) => q.done).length + (playedDaily ? 1 : 0);
     final total = quests.length + 1;
@@ -529,19 +553,53 @@ class _TodayPlan extends ConsumerWidget {
           // not a gap wide enough to look like a new topic. Everything the
           // learner owes today is one thing to look at.
           const SizedBox(height: 16),
-          Row(
-            children: [
-              SqEyebrow(tr('Бүгінгі тізім'), color: AppColors.onInk3),
-              const Spacer(),
-              SqNum('$doneCount/$total',
-                size: 11.5, color: AppColors.onInk2),
-            ],
+          InkWell(
+            onTap: () => setState(() => _openList = !openList),
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  SqEyebrow(tr('Бүгінгі тізім'), color: AppColors.onInk3),
+                  if (claimable && !openList) ...[
+                    const SizedBox(width: 7),
+                    Container(
+                      width: 7, height: 7,
+                      decoration: const BoxDecoration(
+                        color: AppColors.amber, shape: BoxShape.circle)),
+                  ],
+                  const Spacer(),
+                  SqNum('$doneCount/$total',
+                    size: 11.5, color: AppColors.onInk2),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: openList ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: const Icon(PhosphorIconsBold.caretDown,
+                      size: 14, color: AppColors.onInk3),
+                  ),
+                ],
+              ),
+            ),
           ),
-          for (var i = 0; i < rows.length; i++) ...[
-            if (i != 0)
-              Container(height: 1, color: AppColors.inkBlockTrack(d)),
-            rows[i],
-          ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: openList
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < rows.length; i++) ...[
+                        if (i != 0)
+                          Container(
+                            height: 1, color: AppColors.inkBlockTrack(d)),
+                        rows[i],
+                      ],
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
 
           if (doneCount == total) ...[
             const SizedBox(height: 4),

@@ -446,7 +446,7 @@ class _PlaySessionScreenState extends ConsumerState<PlaySessionScreen> {
     final take = await sqConfirm(context,
       title: tr('Жандарың бітті'),
       message: tr('Жарнама көріп, тағы бір жан ал. '
-          'XP берілмейді — рейтинг таза қалады'),
+          'Тәжірибе берілмейді — рейтинг таза қалады'),
       confirm: tr('Жарнама көру'),
       cancel: tr('Аяқтау'),
       danger: false);

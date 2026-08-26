@@ -278,7 +278,7 @@ class _EventCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11.5, fontWeight: FontWeight.w700,
                     color: AppColors.text3(dark)))),
-              SqNum('+${event.xpReward} XP',
+              SqNum(trp('+{n} тәж.', {'n': '${event.xpReward}'}),
                   size: 12.5, color: AppColors.amber),
             ],
           ),
@@ -344,7 +344,7 @@ class _EventSheet extends ConsumerWidget {
                 children: [
                   SqChip(event.levelLabel, icon: PhosphorIconsBold.stack),
                   SqChip(event.remainingLabel, icon: PhosphorIconsBold.clock),
-                  SqChip('+${event.xpReward} XP',
+                  SqChip(trp('+{n} тәж.', {'n': '${event.xpReward}'}),
                       icon: PhosphorIconsBold.star, tint: AppColors.amber),
                 ],
               ),

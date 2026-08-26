@@ -25,6 +25,7 @@ import '../../data/repos/cosmetics_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../auth/guest_gate.dart';
+import 'achievements_screen.dart';
 import 'worn_avatar.dart';
 
 /// Everything the screen needs, in one request each.
@@ -151,16 +152,32 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
                     style: const TextStyle(
                       fontSize: 12.5, fontWeight: FontWeight.w600,
                       color: AppColors.onInk3)),
-                // A title is a cosmetic somebody chose to wear, so it is
-                // shown the way they meant it to be — under the name.
-                if (worn?.title != null) ...[
-                  const SizedBox(height: 8),
-                  SqChip(worn!.title!,
-                    tint: sqHexColor(worn.auraColor) ?? AppColors.amber,
-                    radius: 999,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6)),
-                ],
+                // The level, beside the title, because a level nobody else
+                // can see is a number the app keeps to itself. Computed from
+                // xp with the same curve the owner's own profile uses, so the
+                // two can never disagree.
+                const SizedBox(height: 10),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    if (p != null)
+                      SqChip(trp('{n}-деңгей', {'n': '${p.levelNumber}'}),
+                        tint: AppColors.sky,
+                        radius: 999,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6)),
+                    // A title is a cosmetic somebody chose to wear, so it is
+                    // shown the way they meant it to be — under the name.
+                    if (worn?.title != null)
+                      SqChip(worn!.title!,
+                        tint: sqHexColor(worn.auraColor) ?? AppColors.amber,
+                        radius: 999,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6)),
+                  ],
+                ),
               ],
             ),
           ),
@@ -304,10 +321,15 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  // Tappable, because a badge you cannot ask about is just
+                  // an emoji. A tooltip needed a long press and only ever
+                  // gave back the title.
                   for (final a in kAchievements)
                     if (unlocked.contains(a.code))
-                      Tooltip(
-                        message: tr(a.title),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => showAchievementSheet(
+                            context, a, unlocked: true),
                         child: Container(
                           width: 42, height: 42,
                           decoration: BoxDecoration(

@@ -96,8 +96,8 @@ class _Body extends ConsumerWidget {
 
   static List<(String, String, Color)> get _prizes => [
     (tr('1 орын'), tr('2 000 тәжірибе + Алмас жиек'), const Color(0xFFFFAA00)),
-    (tr('2–3 орын'), '1 200 XP', const Color(0xFF9FB0C4)),
-    (tr('4–10 орын'), '600 XP', const Color(0xFFCD7F32)),
+    (tr('2–3 орын'), tr('1 200 тәжірибе'), const Color(0xFF9FB0C4)),
+    (tr('4–10 орын'), tr('600 тәжірибе'), const Color(0xFFCD7F32)),
   ];
 
   @override

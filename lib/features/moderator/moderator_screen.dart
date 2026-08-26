@@ -314,7 +314,8 @@ class _ModeratorScreenState extends ConsumerState<ModeratorScreen> {
           title: (AppLang.isRu ? c.nameRu : c.nameKk).isEmpty
               ? c.id
               : (AppLang.isRu ? c.nameRu : c.nameKk),
-          subtitle: '${modCosmeticKindLabel(c.kind)} · ${c.price} XP · '
+          subtitle: '${modCosmeticKindLabel(c.kind)} · ${c.price} '
+                    '${tr('тиын')} · '
                     '${modRarityLabel(c.rarity)}',
           trailing: _LiveToggle(
             active: c.isActive,

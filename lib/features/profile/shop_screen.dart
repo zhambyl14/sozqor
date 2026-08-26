@@ -183,20 +183,26 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
           const SizedBox(height: 16),
         ],
 
-        async.when(
-          loading: () => const Column(
-            children: [SqShimmer(), SqShimmer(), SqShimmer()]),
-          error: (e, _) => SqEmpty(
+        // Spread, not nested. Every section is a child of the page's own
+        // ListView, so the sliver can skip the ones that are off screen.
+        // Wrapped in a Column they were a single render object: all eighty-odd
+        // items laid out and painted on every frame, a couple of dozen of them
+        // carrying blurred shadows, which is why opening the shop stopped the
+        // app dead rather than merely stuttering.
+        ...async.when(
+          loading: () => const <Widget>[
+            SqShimmer(), SqShimmer(), SqShimmer()],
+          error: (e, _) => <Widget>[SqEmpty(
             icon: PhosphorIconsFill.warningCircle,
             title: tr('Дүкен жүктелмеді'),
             subtitle: humanError(e),
-            tint: AppColors.red),
+            tint: AppColors.red)],
           data: (items) {
             if (items.isEmpty) {
-              return SqEmpty(
+              return <Widget>[SqEmpty(
                 icon: PhosphorIconsFill.storefront,
                 title: tr('Дүкен әзірге бос'),
-                subtitle: tr('Жақында жаңа заттар қосылады'));
+                subtitle: tr('Жақында жаңа заттар қосылады'))];
             }
             // Only kinds the server actually stocks get a shelf, so retiring
             // every banner leaves no empty "Баннерлер" heading behind.
@@ -207,23 +213,20 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
             final open = _kind != null && kinds.contains(_kind)
                 ? [_kind!] : kinds;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Wearing(items: items),
-                _KindFilter(
-                  kinds: kinds,
-                  selected: kinds.contains(_kind) ? _kind : null,
-                  ownedOf: (k) => items
-                      .where((c) => c.kind == k && (c.owned || c.isDefault))
-                      .length,
-                  totalOf: (k) => items.where((c) => c.kind == k).length,
-                  onPick: (k) => setState(() => _kind = k)),
-                const SizedBox(height: 18),
-                for (final k in open)
-                  ..._section(items, k, cosmeticKindLabel(k), coins),
-              ],
-            );
+            return <Widget>[
+              _Wearing(items: items),
+              _KindFilter(
+                kinds: kinds,
+                selected: kinds.contains(_kind) ? _kind : null,
+                ownedOf: (k) => items
+                    .where((c) => c.kind == k && (c.owned || c.isDefault))
+                    .length,
+                totalOf: (k) => items.where((c) => c.kind == k).length,
+                onPick: (k) => setState(() => _kind = k)),
+              const SizedBox(height: 18),
+              for (final k in open)
+                ..._section(items, k, cosmeticKindLabel(k), coins),
+            ];
           },
         ),
 
@@ -458,7 +461,10 @@ class _CosmeticRow extends StatelessWidget {
 ///
 /// Nothing here switches over known ids, so an item a moderator adds tonight
 /// draws itself correctly tomorrow.
-Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 44}) {
+/// Everything below is wrapped in a [RepaintBoundary] by [cosmeticPreview]:
+/// a shelf is dozens of gradients and a fair few blurs, and without a boundary
+/// each one is redrawn on every pixel of scroll.
+Widget _preview(BuildContext context, Cosmetic item, double size) {
   final d = isDark(context);
   final color = sqHexColor(item.color);
   final second = frameSecondOf(item.data) ?? color;
@@ -475,6 +481,8 @@ Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 44}) 
         frame: color ?? AppColors.muted(d),
         frameSecond: second,
         fx: frameFxOf(item.data),
+        // Caught mid-turn rather than turning: see the note on `still`.
+        still: true,
       );
 
     case CosmeticKind.avatar:
@@ -581,9 +589,6 @@ Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 44}) 
                 BoxShadow(
                   color: glow.withValues(alpha: 0.60),
                   blurRadius: size * 0.34, spreadRadius: size * 0.08),
-                BoxShadow(
-                  color: glow.withValues(alpha: 0.25),
-                  blurRadius: size * 0.60, spreadRadius: size * 0.16),
               ],
             ),
           ),
@@ -617,6 +622,10 @@ Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 44}) 
       );
   }
 }
+
+Widget cosmeticPreview(BuildContext context, Cosmetic item,
+        {double size = 44}) =>
+    RepaintBoundary(child: _preview(context, item, size));
 
 /// What the learner is wearing right now, read straight out of the catalogue
 /// rather than from a second request.

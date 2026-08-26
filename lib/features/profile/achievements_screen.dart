@@ -26,6 +26,93 @@ List<({String title, List<String> metrics})> get _groups => [
   (title: tr('Арена'), metrics: ['battles_won', 'elo', 'marathon']),
 ];
 
+/// What an achievement is, in words, on a tap.
+///
+/// The badge itself is an icon and a title, and on somebody else's profile it
+/// was an emoji and nothing at all — you could see that a person had earned
+/// something without any way of finding out what. This is the answer, and it
+/// is the same answer on both screens.
+///
+/// [current] is left null for another person's profile, where their progress
+/// towards the ones they have not earned is not ours to show.
+Future<void> showAchievementSheet(
+  BuildContext context,
+  Achievement a, {
+  required bool unlocked,
+  int? current,
+}) {
+  final d = isDark(context);
+  final tint = unlocked ? AppColors.amber : AppColors.primary;
+  final done = (current ?? 0).clamp(0, a.target);
+  final ratio = a.target == 0 ? 0.0 : (done / a.target).clamp(0.0, 1.0);
+
+  return showModalBottomSheet<void>(
+    context: context,
+    builder: (_) => SqSheet(
+      title: tr(a.title),
+      children: [
+        Row(
+          children: [
+            SqTintBox(_iconFor(a), tint: tint, size: 52, solid: unlocked),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(tr(a.description),
+                    style: TextStyle(
+                      fontSize: 14, height: 1.4, fontWeight: FontWeight.w700,
+                      color: AppColors.text(d))),
+                  const SizedBox(height: 6),
+                  Text(
+                    unlocked
+                        ? tr('Ашылды')
+                        : tr('Әзірге ашылмаған'),
+                    style: TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w700,
+                      color: unlocked ? AppColors.amberInk : AppColors.text3(d))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (!unlocked && current != null) ...[
+          SqTrack(ratio, height: 7, color: AppColors.primary),
+          const SizedBox(height: 8),
+          Text(trp('{done} / {target}',
+              {'done': '$done', 'target': '${a.target}'}),
+            style: TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w800,
+              color: AppColors.text3(d))),
+          const SizedBox(height: 16),
+        ],
+        SqPanel(
+          radius: 16,
+          padding: const EdgeInsets.all(14),
+          fill: AppColors.soft(AppColors.amber, d),
+          border: AppColors.line(AppColors.amber, d),
+          child: Row(
+            children: [
+              const Icon(PhosphorIconsFill.sparkle,
+                size: 18, color: AppColors.amberInk),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  trp('Сыйлығы: {n} тәжірибе', {'n': '${a.xp}'}),
+                  style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w800,
+                    color: AppColors.amberInk)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 IconData _iconFor(Achievement a) => switch (a.code) {
   'first_word'  => PhosphorIconsFill.seal,
   'words_10'    => PhosphorIconsFill.books,
@@ -209,15 +296,12 @@ class _Badge extends StatelessWidget {
     final a = achievement;
     final ratio = a.target == 0 ? 0.0 : (current / a.target).clamp(0.0, 1.0);
 
-    return Container(
+    return SqPanel(
+      radius: 18,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: unlocked ? AppColors.card(d) : AppColors.muted(d),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: unlocked ? AppColors.border(d) : AppColors.border(d),
-          style: unlocked ? BorderStyle.solid : BorderStyle.solid),
-      ),
+      fill: unlocked ? AppColors.card(d) : AppColors.muted(d),
+      onTap: () => showAchievementSheet(context, a,
+          unlocked: unlocked, current: current),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -245,7 +329,7 @@ class _Badge extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             unlocked
-                ? '+${a.xp} XP'
+                ? trp('+{n} тәж.', {'n': '${a.xp}'})
                 : '${current.clamp(0, a.target)} / ${a.target}',
             style: TextStyle(
               fontSize: 10.5, fontWeight: FontWeight.w800,

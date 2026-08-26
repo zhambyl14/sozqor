@@ -43,7 +43,7 @@ extension on LeaderboardTab {
   String get unit => switch (this) {
     LeaderboardTab.elo => '',
     LeaderboardTab.marathon || LeaderboardTab.timeAttack => tr(' ұпай'),
-    _ => ' XP',
+    _ => tr(' тәжірибе'),
   };
 }
 

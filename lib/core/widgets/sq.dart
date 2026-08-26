@@ -1913,6 +1913,45 @@ class SqSheetGrip extends StatelessWidget {
   );
 }
 
+/// The body of a modal bottom sheet: grip, centred title, content.
+///
+/// Every sheet in the app had been writing the same twenty lines of padding,
+/// grip and title by hand, and they had drifted — different paddings, one of
+/// them missing the grip entirely. The keyboard inset is included, so a sheet
+/// with a text field in it does not sit under the keyboard.
+class SqSheet extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const SqSheet({super.key, required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 22, right: 22, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 26),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SqSheetGrip(),
+            Text(title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 19, fontWeight: FontWeight.w800,
+                letterSpacing: -0.4, color: AppColors.text(d))),
+            const SizedBox(height: 18),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// A nine-digit friend code, grouped the way a phone number is.
 ///
 /// "482739154" is nine characters nobody can read back correctly;

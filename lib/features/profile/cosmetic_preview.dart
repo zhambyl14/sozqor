@@ -64,6 +64,14 @@ class CosmeticAvatar extends StatefulWidget {
   /// Pinned to the bottom-right.
   final String? badge;
 
+  /// Freezes the effect at one frame of its cycle.
+  ///
+  /// A moving ring is worth a ticker on a profile, where there is one of
+  /// them. In a list it is a repaint every frame under a RepaintBoundary,
+  /// which is the boundary doing work instead of saving it — and the gradient
+  /// reads as metal standing still just as well as turning.
+  final bool still;
+
   const CosmeticAvatar({
     super.key,
     required this.name,
@@ -74,6 +82,7 @@ class CosmeticAvatar extends StatefulWidget {
     this.fx = FrameFx.none,
     this.aura,
     this.badge,
+    this.still = false,
   });
 
   @override
@@ -84,7 +93,8 @@ class _CosmeticAvatarState extends State<CosmeticAvatar>
     with SingleTickerProviderStateMixin {
   AnimationController? _c;
 
-  bool get _animates => widget.fx != FrameFx.none && widget.frame != null;
+  bool get _animates =>
+      !widget.still && widget.fx != FrameFx.none && widget.frame != null;
 
   @override
   void initState() {
@@ -159,7 +169,7 @@ class _CosmeticAvatarState extends State<CosmeticAvatar>
       final c = _c;
       stack = RepaintBoundary(
         child: c == null
-            ? _ringed(stack, ring, second, 0, s)
+            ? _ringed(stack, ring, second, 0.18, s)
             : AnimatedBuilder(
                 animation: c,
                 builder: (_, __) => _ringed(stack, ring, second, c.value, s),
@@ -219,7 +229,9 @@ class _CosmeticAvatarState extends State<CosmeticAvatar>
               transform: GradientRotation(turn * 0.25)),
           FrameFx.none => LinearGradient(colors: [a, b]),
         },
-        boxShadow: widget.fx == FrameFx.pulse
+        // The glow is the expensive part — a blur is its own draw pass — and
+        // a still frame in a list does not need one.
+        boxShadow: widget.fx == FrameFx.pulse && !widget.still
             ? [BoxShadow(
                 color: a.withValues(
                   alpha: 0.25 + 0.3 * (0.5 + 0.5 * math.sin(turn))),

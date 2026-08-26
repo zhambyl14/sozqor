@@ -27,6 +27,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/repos/cosmetics_repo.dart';
+import 'cosmetic_preview.dart';
 
 class WornAvatar extends StatelessWidget {
   final String name;
@@ -58,6 +59,24 @@ class WornAvatar extends StatelessWidget {
     final frame = sqHexColor(worn?.frameColor);
     final aura = sqHexColor(worn?.auraColor);
     final badge = worn?.badge;
+
+    // A frame that carries motion is drawn by the renderer that knows how to
+    // move it — the same one the shop previews with and the owner's own
+    // profile uses. Anything else and the thing somebody paid for looks like
+    // a plain ring to every person who sees them.
+    final fx = frameFxOf({'fx': worn?.frameFx});
+    if (frame != null && fx != FrameFx.none) {
+      return CosmeticAvatar(
+        name: name,
+        emoji: emoji,
+        size: size,
+        frame: frame,
+        frameSecond: sqHexColor(worn?.frameColor2) ?? frame,
+        fx: fx,
+        aura: aura,
+        badge: badge,
+      );
+    }
 
     // The ring eats 2 pt a side, so the face shrinks to keep the whole
     // assembly at [size] and rows stay the height they were.

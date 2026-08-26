@@ -144,6 +144,13 @@ class Cosmetic {
 class WornCosmetics {
   final String? frameId;
   final String? frameColor;
+
+  /// The frame's second colour and its motion. Without these, everybody but
+  /// the owner saw a flat ring: the effect was rendered from the shop
+  /// catalogue, which only the owner's own profile reads. An item bought to
+  /// be seen was invisible to exactly the people it was bought for.
+  final String? frameColor2;
+  final String? frameFx;
   final String? titleKk, titleRu;
   final String? bannerColor;
   final String? badgeEmoji;
@@ -152,6 +159,8 @@ class WornCosmetics {
   const WornCosmetics({
     this.frameId,
     this.frameColor,
+    this.frameColor2,
+    this.frameFx,
     this.titleKk,
     this.titleRu,
     this.bannerColor,
@@ -205,6 +214,8 @@ class CosmeticsRepo {
       out[id] = WornCosmetics(
         frameId:     m['frame'] as String?,
         frameColor:  m['frame_color'] as String?,
+        frameColor2: m['frame_color2'] as String?,
+        frameFx:     m['frame_fx'] as String?,
         titleKk:     m['title_kk'] as String?,
         titleRu:     m['title_ru'] as String?,
         bannerColor: m['banner_color'] as String?,

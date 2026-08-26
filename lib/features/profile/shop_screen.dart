@@ -30,6 +30,7 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/repos/cosmetics_repo.dart';
+import 'cosmetic_preview.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../home/missions_screen.dart';
@@ -361,7 +362,8 @@ class _CosmeticRow extends StatelessWidget {
   /// frame shows its ring, a banner its stripe, an aura its glow, a badge and
   /// an avatar their character. Nothing here switches over known ids, so an
   /// item the moderator adds tonight draws itself correctly tomorrow.
-  Widget _preview(BuildContext context) => cosmeticPreview(context, item);
+  Widget _preview(BuildContext context) =>
+      cosmeticPreview(context, item, size: 48);
 
   @override
   Widget build(BuildContext context) {
@@ -382,8 +384,23 @@ class _CosmeticRow extends StatelessWidget {
     return SqTile(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
       leading: Opacity(
-        opacity: item.isReward && !item.unlocked ? 0.4 : 1,
-        child: _preview(context),
+        // A locked reward is dimmed rather than hidden: seeing what is behind
+        // the streak is the reason to keep the streak.
+        opacity: item.isReward && !item.unlocked ? 0.45 : 1,
+        child: Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            // The rarity as light around the item, so an epic reads as epic
+            // across the room instead of only in the word underneath it.
+            boxShadow: item.isDefault
+                ? null
+                : [BoxShadow(
+                    color: rarity.tint.withValues(alpha: 0.30),
+                    blurRadius: 14, spreadRadius: 1)],
+          ),
+          child: _preview(context),
+        ),
       ),
       title: item.name,
       subtitle: subtitle,
@@ -430,27 +447,47 @@ class _CosmeticRow extends StatelessWidget {
 
 /// The swatch a cosmetic is recognised by. Shared with the "wearing now"
 /// strip so an item never looks like two different things.
-Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 40}) {
+/// What an item looks like, drawn from its own payload.
+///
+/// This used to be a flat disc of one colour for a frame, a plain stripe for
+/// a banner and a ring for an aura — which is precisely why the shop looked
+/// like nothing worth buying: the animated renderer already existed in
+/// cosmetic_preview.dart and the shop was not using it. A frame now previews
+/// with its real gradient and its real motion, so what you pay for is what
+/// you saw.
+///
+/// Nothing here switches over known ids, so an item a moderator adds tonight
+/// draws itself correctly tomorrow.
+Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 44}) {
   final d = isDark(context);
   final color = sqHexColor(item.color);
+  final second = frameSecondOf(item.data) ?? color;
+  final tint = _rarity(item.rarity).tint;
 
   switch (item.kind) {
     case CosmeticKind.frame:
-      return Container(
-        width: size, height: size,
-        padding: EdgeInsets.all(size * 0.075),
-        decoration: BoxDecoration(
-          color: color ?? AppColors.muted(d), shape: BoxShape.circle),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppColors.card(d), shape: BoxShape.circle)),
+      // The real thing: gradient, sweep, shimmer or pulse, exactly as it will
+      // look on the profile and above the opponent's head in a battle.
+      return CosmeticAvatar(
+        name: item.name,
+        emoji: '🙂',
+        size: size,
+        frame: color ?? AppColors.muted(d),
+        frameSecond: second,
+        fx: frameFxOf(item.data),
       );
 
     case CosmeticKind.avatar:
       return Container(
         width: size, height: size,
         decoration: BoxDecoration(
-          color: AppColors.muted(d),
+          gradient: LinearGradient(
+            colors: [
+              AppColors.soft(tint, d),
+              AppColors.line(tint, d),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight),
           borderRadius: BorderRadius.circular(size * 0.33)),
         alignment: Alignment.center,
         child: Text(item.emoji ?? '🙂',
@@ -459,19 +496,28 @@ Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 40}) 
 
     case CosmeticKind.badge:
       // A badge rides next to a name at a fraction of this size, so it is
-      // previewed on a disc of its own rather than free-floating.
+      // previewed on a disc of its own with the rarity's light behind it.
       return Container(
         width: size, height: size,
         decoration: BoxDecoration(
-          color: AppColors.soft(_rarity(item.rarity).tint, d),
-          shape: BoxShape.circle),
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [AppColors.soft(tint, d), AppColors.line(tint, d)]),
+          boxShadow: [
+            BoxShadow(
+              color: tint.withValues(alpha: 0.35),
+              blurRadius: size * 0.28, spreadRadius: size * 0.02),
+          ],
+        ),
         alignment: Alignment.center,
         child: Text(item.emoji ?? '•',
           style: TextStyle(fontSize: size * 0.45)),
       );
 
     case CosmeticKind.banner:
-      // A banner is a wide strip behind a name, so the preview is that strip.
+      // A banner is a wide strip behind a name, so the preview is that strip
+      // — with the diagonal sheen it actually carries, not a flat bar.
+      final base = color ?? tint;
       return Container(
         width: size, height: size,
         decoration: BoxDecoration(
@@ -479,44 +525,96 @@ Widget cosmeticPreview(BuildContext context, Cosmetic item, {double size = 40}) 
           borderRadius: BorderRadius.circular(size * 0.28)),
         clipBehavior: Clip.antiAlias,
         alignment: Alignment.center,
-        child: Container(
-          height: size * 0.5,
-          decoration: BoxDecoration(
-            gradient: color == null
-                ? null
-                : LinearGradient(
-                    colors: [color, color.withValues(alpha: 0.45)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight),
-            color: color == null ? AppColors.text4(d) : null),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    base,
+                    Color.lerp(base, Colors.black, 0.35) ?? base,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight),
+              ),
+            ),
+            // The highlight that makes a flat rectangle read as a surface.
+            Transform.rotate(
+              angle: -0.6,
+              child: FractionallySizedBox(
+                widthFactor: 0.42,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0.00),
+                        Colors.white.withValues(alpha: 0.28),
+                        Colors.white.withValues(alpha: 0.00),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
 
     case CosmeticKind.aura:
-      // An aura is light around an avatar; the preview is that light.
-      final glow = color ?? AppColors.text4(d);
+      // An aura is light around an avatar; the preview is that light, at the
+      // strength it will actually have.
+      final glow = color ?? tint;
       return SizedBox(
         width: size, height: size,
         child: Center(
           child: Container(
-            width: size * 0.62, height: size * 0.62,
+            width: size * 0.60, height: size * 0.60,
             decoration: BoxDecoration(
-              color: AppColors.card(d),
               shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [
+                AppColors.card(d),
+                glow.withValues(alpha: 0.35),
+              ]),
               border: Border.all(color: glow, width: 2),
-              boxShadow: color == null
-                  ? null
-                  : [BoxShadow(
-                      color: glow.withValues(alpha: 0.55),
-                      blurRadius: size * 0.30, spreadRadius: size * 0.06)],
+              boxShadow: [
+                BoxShadow(
+                  color: glow.withValues(alpha: 0.60),
+                  blurRadius: size * 0.34, spreadRadius: size * 0.08),
+                BoxShadow(
+                  color: glow.withValues(alpha: 0.25),
+                  blurRadius: size * 0.60, spreadRadius: size * 0.16),
+              ],
             ),
           ),
         ),
       );
 
     case CosmeticKind.title:
-      return SqTintBox(PhosphorIconsFill.sealCheck,
-        tint: _rarity(item.rarity).tint, size: size);
+      // A title is words in the frame's colour, so the preview is the word
+      // itself rather than a generic seal that told you nothing.
+      return Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(size * 0.28),
+          gradient: LinearGradient(
+            colors: [AppColors.soft(tint, d), AppColors.line(tint, d)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight),
+        ),
+        alignment: Alignment.center,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: size * 0.08),
+          child: FittedBox(
+            child: Text(
+              item.name.isEmpty ? 'A' : item.name.characters.first.toUpperCase(),
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: AppColors.onSoft(tint, d)),
+            ),
+          ),
+        ),
+      );
   }
 }
 

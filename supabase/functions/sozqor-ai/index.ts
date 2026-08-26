@@ -90,6 +90,16 @@ const GEMINI_MODELS = [
 // MAX_TOKENS with an empty candidate. These floors are what the probe needed.
 const GEMINI_MIN_TOKENS = 2048;
 
+/// 2.5-flash accepts a thinking budget of zero and answers in about a second
+/// instead of seven. 3.6-flash rejects the same field with a 400, which is
+/// why this is a per-model fact rather than a setting.
+///
+/// Translation is lookup, not reasoning: the model either knows what
+/// "кітапхана" means or it does not, and no amount of deliberation invents
+/// the knowledge. Spending six seconds of hidden thought on it is six
+/// seconds a learner spends watching a spinner.
+const NO_THINK_MODELS = new Set(["gemini-2.5-flash"]);
+
 // The only two of the free OpenRouter models that answered at all when
 // probed; the rest 404 with "unavailable for free". Never used for anything
 // that reaches the dictionary — see `trustedOnly`.
@@ -237,6 +247,9 @@ async function callGemini(
         generationConfig: {
           temperature,
           maxOutputTokens: Math.max(maxTokens, GEMINI_MIN_TOKENS),
+          ...(NO_THINK_MODELS.has(model)
+            ? { thinkingConfig: { thinkingBudget: 0 } }
+            : {}),
         },
       }),
       signal: AbortSignal.timeout(LLM_TIMEOUT),

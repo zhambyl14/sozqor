@@ -20,6 +20,8 @@
 //     minutes" action, kept on the device: this is "stop poking me", not a
 //     block, and it should not outlive the annoyance.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
@@ -56,6 +58,26 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
 
   String? _opening;
 
+  /// Redraws the countdown, and answers on the learner's behalf when it runs
+  /// out. Fifteen seconds is the whole budget: the sender is looking at a
+  /// spinner the entire time, so an invitation nobody answers has to become a
+  /// refusal rather than silence.
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
   Battle? _pick(List<Battle> invites) {
     final uid = currentUid ?? '';
     final now = DateTime.now();
@@ -65,6 +87,15 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
       final from = b.oppId(uid);
       if (from == null) continue;
       if (ref.read(mutedInvitersProvider.notifier).isMuted(from)) continue;
+      // Out of time. Sending the refusal rather than just hiding the card is
+      // what starts the two-minute silence AND what tells the sender to stop
+      // waiting — hiding it locally would leave them staring at a spinner
+      // until their own clock ran out.
+      if (b.inviteSecondsLeft <= 0) {
+        _handled.add(b.id);
+        WidgetsBinding.instance.addPostFrameCallback((_) => _decline(b));
+        continue;
+      }
       return b;
     }
     return null;
@@ -83,8 +114,24 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
       _handled.add(b.id);
       _opening = b.id;
     });
-    await Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(builder: (_) => BattleScreen(battle: b)));
+    try {
+      // Opening the screen is NOT accepting. The row has to become `active`,
+      // and it becomes active here — which is also the moment the sender's
+      // waiting sheet stops spinning and drops them into the same match.
+      // Pushing the battle screen without this was the old bug wearing a new
+      // hat: one player playing a match the other had never agreed to.
+      final live = await ref.read(battleRepoProvider).respondToInvite(b.id, true);
+      if (!mounted) return;
+      if (live.status != 'active') {
+        setState(() => _opening = null);
+        sqSnack(context, tr('Шақыру ескірді'), error: true);
+        return;
+      }
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(builder: (_) => BattleScreen(battle: live)));
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    }
     if (!mounted) return;
     setState(() => _opening = null);
     refreshAll(ref);
@@ -133,6 +180,7 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
             child: _InviteCard(
               name: _names[invite.oppId(currentUid ?? '') ?? ''] ??
                   tr('Досың'),
+              secondsLeft: invite.inviteSecondsLeft,
               busy: _opening == invite.id,
               onAccept: () => _accept(invite),
               onDecline: () => _decline(invite),
@@ -146,11 +194,18 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
 
 class _InviteCard extends StatelessWidget {
   final String name;
+
+  /// Drawn as a number and as a bar. At a glance it says "hurry" without
+  /// anybody having to read it, which matters on a card that appears over
+  /// whatever the learner was already doing.
+  final int secondsLeft;
+
   final bool busy;
   final VoidCallback onAccept, onDecline, onMute;
 
   const _InviteCard({
     required this.name,
+    required this.secondsLeft,
     required this.busy,
     required this.onAccept,
     required this.onDecline,
@@ -201,7 +256,30 @@ class _InviteCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 13),
+              const SizedBox(height: 11),
+              // The clock the sender is also watching. Fifteen seconds, drawn
+              // so it can be read without reading.
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: (secondsLeft / 15).clamp(0.0, 1.0),
+                        minHeight: 5,
+                        backgroundColor: Colors.white.withValues(alpha: 0.14),
+                        valueColor:
+                            const AlwaysStoppedAnimation(Colors.white)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(trp('{n} с', {'n': '$secondsLeft'}),
+                    style: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w800,
+                      color: Colors.white)),
+                ],
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(

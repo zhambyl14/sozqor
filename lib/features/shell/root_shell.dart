@@ -15,7 +15,6 @@ import '../../core/widgets/sq.dart';
 import '../../providers.dart';
 import '../../services/push_service.dart';
 import '../arena/arena_screen.dart';
-import '../arena/battle_invite_overlay.dart';
 import '../home/home_screen.dart';
 import '../play/play_hub_screen.dart';
 import '../profile/profile_screen.dart';
@@ -101,11 +100,11 @@ class _RootShellState extends ConsumerState<RootShell> {
     return Scaffold(
       backgroundColor: AppColors.bg(d),
       extendBody: true,
-      // EN-12: an invitation reaches the learner on whatever tab they are
-      // standing on. Wrapping the body rather than each screen means it
-      // survives a tab switch and cannot be drawn twice.
-      body: BattleInviteOverlay(
-        child: IndexedStack(index: index, children: _screens)),
+      // The invitation banner used to be wrapped around this IndexedStack,
+      // which meant it could only ever appear over a TAB — never over a
+      // pushed route. It lives in the MaterialApp builder now (lib/app.dart),
+      // above the navigator, so it reaches the learner wherever they are.
+      body: IndexedStack(index: index, children: _screens),
       // Matched to the cap SqPage puts on page content. Left full-width in a
       // desktop browser the five tabs drift to opposite edges of the screen
       // while the content above them sits in a centred column, which reads as

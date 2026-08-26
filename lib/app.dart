@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
 import 'data/supa.dart';
+import 'features/arena/battle_invite_overlay.dart';
 import 'features/auth/login_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/shell/root_shell.dart';
@@ -39,7 +40,12 @@ class SozQorApp extends ConsumerWidget {
       // laid out tightly enough that anything larger would clip.
       builder: (context, child) => MediaQuery.withClampedTextScaling(
         maxScaleFactor: 1.2,
-        child: child ?? const SizedBox.shrink(),
+        // The invitation banner lives HERE, above the navigator, rather than
+        // inside the tab shell. Wrapped around the tabs it could not appear
+        // over a pushed route — so a friend calling while you were in the
+        // word bank, the shop or a story chapter reached nothing at all, and
+        // the requirement is that it reaches you whatever screen you are on.
+        child: BattleInviteOverlay(child: child ?? const SizedBox.shrink()),
       ),
       home: const AuthGate(),
     );

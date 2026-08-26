@@ -47,8 +47,13 @@ class QuestionFactory {
   }) {
     final rng = Random(seed ?? DateTime.now().microsecondsSinceEpoch);
 
+    // A word the learner cannot be asked about in THEIR language is not a
+    // usable word. Without this the factory happily built a Kazakh→English
+    // question for somebody reading the app in Russian, because
+    // DictEntry.native() falls back to Kazakh without saying so.
     final usable = items
         .where((i) => i.entry.en.trim().isNotEmpty && i.entry.kk.trim().isNotEmpty)
+        .where((i) => i.entry.hasNative(nativeLang))
         .toList();
     if (usable.isEmpty) return const [];
 
@@ -163,7 +168,12 @@ class QuestionFactory {
 
       case QKind.enKk:
         final opts = _options(
-            own, all.map((x) => x.native(lang)), rng, exclude: {e.en});
+            own,
+            // Only rows that really have this language. Mixing in a fallback
+            // put Kazakh words among the Russian options, which gives the
+            // answer away and reads as a bug.
+            all.where((x) => x.hasNative(lang)).map((x) => x.native(lang)),
+            rng, exclude: {e.en});
         if (opts.length < _minOptions) return null;
         return Question(
           kind: kind, wordId: item.wordId,

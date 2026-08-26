@@ -425,6 +425,37 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
           ];
         })(),
 
+        // Who I have asked and who has not answered yet.
+        //
+        // Without this the request vanished the moment it was sent: the
+        // search box forgets, and there was nowhere to see that you HAD
+        // asked — so the only way to find out was to search the handle again
+        // and read the greyed-out button. A pending request is a thing you
+        // are waiting on, and things you are waiting on belong on the screen.
+        ...(() {
+          final outgoing = ref.watch(sentRequestsProvider).valueOrNull
+              ?? const <BoardRow>[];
+          if (outgoing.isEmpty) return const <Widget>[];
+          return [
+            SqSection(tr('Жіберілген сұраныстар'),
+              trailingWidget: SqNum('${outgoing.length}',
+                size: 11, color: AppColors.text3(isDark(context)))),
+            SqGroup(children: [
+              for (final r in outgoing)
+                SqTile(
+                  leading: WornAvatar(
+                    name: r.displayName.isEmpty ? r.username : r.displayName,
+                    worn: worn[r.userId],
+                    size: 38),
+                  title: r.displayName.isEmpty ? r.username : r.displayName,
+                  subtitle: tr('Жауабын күтудеміз'),
+                  trailing: SqBadge(tr('Жіберілді'), tint: AppColors.amber),
+                ),
+            ]),
+            const SizedBox(height: 20),
+          ];
+        })(),
+
         SqSection(tr('Достарым'),
           trailingWidget: SqNum('${list.length}',
             size: 11, color: AppColors.text3(d))),

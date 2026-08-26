@@ -76,6 +76,17 @@ class DictEntry {
   String native(String lang) =>
       lang == 'ru' && (ru ?? '').trim().isNotEmpty ? ru!.trim() : kk;
 
+  /// Whether this row can be asked about in [lang] at all.
+  ///
+  /// [native] falls back to Kazakh when a row has no Russian, which is the
+  /// reported bug: a learner who set the app to Russian was shown a
+  /// Kazakh→English question, because the fallback is silent and the question
+  /// factory could not tell a real Russian form from a substituted Kazakh
+  /// one. A word with no Russian is simply not a word this learner can be
+  /// asked to translate, and the factory skips it.
+  bool hasNative(String lang) =>
+      lang == 'ru' ? (ru ?? '').trim().isNotEmpty : kk.trim().isNotEmpty;
+
   bool get hasDefinition => (definitionEn ?? '').trim().isNotEmpty;
   bool get hasSynonyms   => synonyms.isNotEmpty;
   bool get hasExample    => (exampleEn ?? '').trim().isNotEmpty;

@@ -657,7 +657,6 @@ class _Wearing extends StatelessWidget {
                         cosmeticPreview(context, c, size: 36),
                         const SizedBox(height: 5),
                         Text(c.name,
-                          maxLines: 2,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 10, height: 1.25,

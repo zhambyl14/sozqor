@@ -512,10 +512,12 @@ class _WeeklyCard extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 7),
                 child: Row(
                   children: [
-                    SizedBox(
-                      width: 84,
+                    // A fixed 84 points and one line cut every name longer
+                    // than about nine characters. The column takes what it
+                    // needs and the row grows with it.
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minWidth: 84, maxWidth: 128),
                       child: Text(m.name,
-                        maxLines: 1,
                         style: const TextStyle(
                           fontSize: 11.5, fontWeight: FontWeight.w700,
                           color: AppColors.onInk2)),

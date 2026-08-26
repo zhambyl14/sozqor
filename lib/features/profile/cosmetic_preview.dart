@@ -645,7 +645,6 @@ class BattlePlayerCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(name,
-                maxLines: 1,
                 style: TextStyle(
                   fontSize: 13.5, fontWeight: FontWeight.w800,
                   color: isMe ? Colors.white : AppColors.onInk2)),

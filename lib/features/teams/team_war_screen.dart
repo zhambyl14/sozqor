@@ -483,7 +483,6 @@ class _SideCard extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(
                 child: Text(team?.name ?? tr('Қарсылас күтілуде'),
-                  maxLines: 2,
                   style: TextStyle(
                     fontSize: 12.5, fontWeight: FontWeight.w800,
                     color: AppColors.text(d))),

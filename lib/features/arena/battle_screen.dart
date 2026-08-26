@@ -900,8 +900,10 @@ class _PlayerCard extends StatelessWidget {
           mine ? CrossAxisAlignment.start : CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
+        // No maxLines: a long display name wraps onto a second line and
+        // the header grows by twelve points, which is better than half a
+        // name and no way to read the other half.
         Text(name,
-          maxLines: 1,
           style: const TextStyle(
             fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white)),
         if (title != null)

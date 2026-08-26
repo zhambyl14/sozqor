@@ -44,6 +44,15 @@ class InviteWaitSheetState extends ConsumerState<InviteWaitSheet> {
   int _left = 15;
   String? _outcome;
 
+  /// The moment the invitation was sent, by this device's own stopwatch.
+  ///
+  /// Counting down from `invite_expires_at` meant subtracting a server
+  /// timestamp from the phone's wall clock, and a phone that is a minute fast
+  /// gave up on the invitation before the friend's phone had finished
+  /// ringing. Elapsed time here is right even when the clock is not; the
+  /// server's own deadline is still the one the accept is checked against.
+  final DateTime _sentAt = DateTime.now();
+
   @override
   void initState() {
     super.initState();
@@ -58,7 +67,10 @@ class InviteWaitSheetState extends ConsumerState<InviteWaitSheet> {
 
   Future<void> _check() async {
     if (!mounted) return;
-    setState(() => _left = widget.battle.inviteSecondsLeft);
+    final local = 15 - DateTime.now().difference(_sentAt).inSeconds;
+    final server = widget.battle.inviteSecondsLeft;
+    setState(() => _left =
+        server > 0 && server < local ? server : (local < 0 ? 0 : local));
     try {
       final live = await ref.read(battleRepoProvider).byId(widget.battle.id);
       if (!mounted || live == null) return;

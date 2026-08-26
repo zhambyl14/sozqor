@@ -52,7 +52,12 @@ String humanError(Object e) {
     if (e.code == '23502') return tr('Міндетті өріс толтырылмаған');
     if (e.code == '57014') return tr('Сұраныс уақыты бітті. Қайта көріңіз.');
     if (e.message.contains('GUEST_LOCKED')) {
-      return e.message.split('GUEST_LOCKED:').last.trim();
+      // Through tr(), not straight to the screen. The server writes these in
+      // Kazakh because it has no idea which language the reader chose — and
+      // in this app the Kazakh sentence IS the translation key, so one call
+      // turns every one of them into a Russian one for a Russian learner.
+      // Before this, "Бөлме толы" reached a Russian speaker in Kazakh.
+      return tr(e.message.split('GUEST_LOCKED:').last.trim());
     }
     final coded = _codedFailure(e.message);
     if (coded != null) return coded;
@@ -67,7 +72,7 @@ String humanError(Object e) {
   }
 
   if (raw.contains('GUEST_LOCKED')) {
-    return raw.split('GUEST_LOCKED:').last.replaceAll('"', '').trim();
+    return tr(raw.split('GUEST_LOCKED:').last.replaceAll('"', '').trim());
   }
 
   final coded = _codedFailure(raw);

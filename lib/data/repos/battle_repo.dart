@@ -127,8 +127,17 @@ class BattleRepo {
   /// not a rematch any more.
   Future<Battle?> offerRematch(String battleId) async {
     final row = await supa.rpc('offer_rematch', params: {'p_battle': battleId});
-    if (row == null) return null;
-    return Battle.fromMap(Map<String, dynamic>.from(row as Map));
+    if (row is! Map) return null;
+    final m = Map<String, dynamic>.from(row);
+    // `return null` from a function whose return type is `battles` does NOT
+    // reach us as null: PostgREST answers with an object carrying every
+    // column set to null. Read literally, that is a battle with no id and no
+    // questions — which is exactly what the screen then tried to open, on the
+    // one-sided half of every rematch handshake. The id is the tell.
+    if (m['id'] == null) return null;
+    final b = Battle.fromMap(m);
+    if (b.questions.isEmpty) return null;
+    return b;
   }
 
   /// Where the best-of-three stands, read by BOTH clients from the same rows

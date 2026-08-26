@@ -38,6 +38,11 @@ import 'battle_screen.dart';
 /// sender has almost certainly given up and gone elsewhere.
 const _freshFor = Duration(minutes: 2);
 
+/// The budget the server gives an invitation, mirrored here so the card can
+/// count down without trusting the phone's wall clock. `invite_expires_at` is
+/// still what the accept is checked against.
+const _kInviteWindow = 15;
+
 class BattleInviteOverlay extends ConsumerStatefulWidget {
   final Widget child;
   const BattleInviteOverlay({super.key, required this.child});
@@ -55,6 +60,19 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
   /// Cached sender names, so the card can say who is asking without a lookup
   /// every time the stream ticks.
   final Map<String, String> _names = {};
+
+  /// When THIS device first laid eyes on each invitation.
+  ///
+  /// Both the freshness check and the countdown used to be a subtraction
+  /// against the phone's own clock, and a phone's clock can be wrong — we
+  /// have already seen devices far enough ahead for Supabase to reject their
+  /// tokens outright. On one of those, every invitation arrived already
+  /// expired and was auto-declined in the same frame it appeared, so a friend
+  /// battle with that person was impossible and neither side could see why.
+  ///
+  /// Elapsed time on one device is trustworthy even when its wall clock is
+  /// not, so the fifteen seconds are counted from here.
+  final Map<String, DateTime> _seenAt = {};
 
   String? _opening;
 
@@ -78,12 +96,28 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
     super.dispose();
   }
 
+  /// How long this invitation has left, counted on this device.
+  ///
+  /// The server's own figure still wins when it is the smaller of the two —
+  /// it is the one the accept will actually be checked against — but a
+  /// nonsensical figure from a wrong clock cannot drive it below zero.
+  int _secondsLeft(Battle b) {
+    final seen = _seenAt.putIfAbsent(b.id, DateTime.now);
+    final local = _kInviteWindow - DateTime.now().difference(seen).inSeconds;
+    final server = b.inviteSecondsLeft;
+    if (server <= 0) return local < 0 ? 0 : local;
+    return server < local ? server : (local < 0 ? 0 : local);
+  }
+
   Battle? _pick(List<Battle> invites) {
     final uid = currentUid ?? '';
     final now = DateTime.now();
     for (final b in invites) {
       if (_handled.contains(b.id)) continue;
-      if (now.difference(b.createdAt) > _freshFor) continue;
+      final seen = _seenAt.putIfAbsent(b.id, DateTime.now);
+      // Measured from first sight, not from the row's timestamp: an app that
+      // was closed when the invitation arrived should still show it once.
+      if (now.difference(seen) > _freshFor) continue;
       final from = b.oppId(uid);
       if (from == null) continue;
       if (ref.read(mutedInvitersProvider.notifier).isMuted(from)) continue;
@@ -91,7 +125,7 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
       // what starts the two-minute silence AND what tells the sender to stop
       // waiting — hiding it locally would leave them staring at a spinner
       // until their own clock ran out.
-      if (b.inviteSecondsLeft <= 0) {
+      if (_secondsLeft(b) <= 0) {
         _handled.add(b.id);
         WidgetsBinding.instance.addPostFrameCallback((_) => _decline(b));
         continue;
@@ -180,7 +214,7 @@ class _BattleInviteOverlayState extends ConsumerState<BattleInviteOverlay> {
             child: _InviteCard(
               name: _names[invite.oppId(currentUid ?? '') ?? ''] ??
                   tr('Досың'),
-              secondsLeft: invite.inviteSecondsLeft,
+              secondsLeft: _secondsLeft(invite),
               busy: _opening == invite.id,
               onAccept: () => _accept(invite),
               onDecline: () => _decline(invite),

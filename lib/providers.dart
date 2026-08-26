@@ -640,6 +640,18 @@ class MetaCtrl extends StateNotifier<MetaState> {
     await MetaStore.instance.save(next);
   }
 
+  /// Records a branch the learner took in the story, and hands back every
+  /// branch remembered so far.
+  ///
+  /// Chapter five gates a scene on a flag chosen in chapter two — a different
+  /// screen and a different instance — so the set has to outlive the chapter
+  /// that set it or that consequence can never fire.
+  Future<Set<String>> rememberStoryFlag(String flag) async {
+    final flags = await MetaStore.instance.rememberStoryFlag(flag);
+    state = state.copyWith(storyFlags: flags);
+    return flags;
+  }
+
   /// Marks today's chest opened and banks whatever the wheel landed on
   /// (EN-8 / KK-1).
   ///
@@ -776,3 +788,13 @@ final leagueProgressProvider = FutureProvider<LeagueProgress?>(
 /// Everybody on this learner's rung, ordered by rating.
 final leagueStandingsProvider = FutureProvider<List<LeagueRow>>(
     (ref) => ref.watch(leagueRepoProvider).standings());
+
+/// The unfinished match this learner walked away from, if there is one.
+///
+/// Reopening the app used to drop somebody back on the home tab with no sign
+/// that a battle was still running with their name on it — and the opponent
+/// waiting on the other end had no way to know either.
+final openBattleProvider = FutureProvider<Battle?>((ref) {
+  if (currentUid == null) return Future.value(null);
+  return ref.watch(battleRepoProvider).myOpenBattle();
+});

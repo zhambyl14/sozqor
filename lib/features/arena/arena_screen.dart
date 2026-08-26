@@ -87,6 +87,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       refreshAll(ref);
       ref.invalidate(battleHistoryProvider);
       ref.invalidate(pendingInvitesProvider);
+      ref.invalidate(openBattleProvider);
     }
     // A finished battle used to chain straight into the next one from here:
     // ranked called _startRanked(), which is ordinary matchmaking, so the
@@ -280,6 +281,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         ref.invalidate(myLeagueProvider);
         ref.invalidate(tournamentProvider);
         ref.invalidate(pendingInvitesProvider);
+        ref.invalidate(openBattleProvider);
         ref.invalidate(playedDailyProvider);
         ref.invalidate(battleHistoryProvider);
         ref.invalidate(myProfileProvider);
@@ -313,6 +315,51 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         // not const: these translate, so they repaint on a language switch
         // ignore: prefer_const_constructors
         GuestBanner(feature: GuestFeature.ranked),
+
+        // Somewhere to land after closing the app mid-match. Without it the
+        // learner reopens on the home tab with no sign that a battle is still
+        // running with their name on it — and the opponent on the other end
+        // is still waiting for them.
+        ...(() {
+          final open = ref.watch(openBattleProvider).valueOrNull;
+          if (open == null) return const <Widget>[];
+          return [
+            SqPanel(
+              radius: 20,
+              padding: const EdgeInsets.all(15),
+              fill: AppColors.soft(AppColors.amber, d),
+              border: AppColors.line(AppColors.amber, d),
+              child: Row(
+                children: [
+                  const SqTintBox(PhosphorIconsFill.hourglassMedium,
+                    tint: AppColors.amber, size: 40, solid: true),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(tr('Аяқталмаған баттл бар'),
+                      style: TextStyle(
+                        fontSize: 13.5, height: 1.35,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.text(d))),
+                  ),
+                  SqLip(
+                    fill: AppColors.amber,
+                    lip: AppColors.amberDeep,
+                    depth: 3,
+                    radius: 12,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13, vertical: 10),
+                    onTap: () => _openBattle(open),
+                    child: Text(tr('Жалғастыру'),
+                      style: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w800,
+                        color: Colors.white)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 11),
+          ];
+        })(),
 
         if (invites.isNotEmpty) ...[
           for (final b in invites) ...[

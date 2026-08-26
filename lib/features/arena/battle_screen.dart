@@ -101,6 +101,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   bool _rematchWaiting = false;
   Timer? _rematchPoll;
 
+  /// The heartbeat, and what it last said about the other side.
+  ///
+  /// A match against somebody whose phone lost signal used to run its clock
+  /// out anyway: they were marked wrong on every remaining question by a timer
+  /// nobody could see. The clock stops instead, for both of them, and after a
+  /// minute and a half the player still here can take the win.
+  Timer? _pulse;
+  bool _oppAway = false;
+  bool _canClaim = false;
+
   /// The opponent left and the server awarded this match on their forfeit.
   bool _oppForfeited = false;
 
@@ -163,6 +173,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     _botTimer?.cancel();
     _awaitOpp?.cancel();
     _rematchPoll?.cancel();
+    _pulse?.cancel();
     _watch?.cancel();
     if (_channel != null) supa.removeChannel(_channel!);
     Speech.instance.stop();
@@ -180,6 +191,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       _watchRow();
     }
     _startQuestionTimer();
+    _startPulse();
     _maybeSpeak();
   }
 
@@ -279,6 +291,56 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     }
 
     scheduleNext();
+  }
+
+  /// Says "still here" every three seconds and reads back whether the other
+  /// side is. Bots never leave, so they get no heartbeat and no pause.
+  void _startPulse() {
+    if (_isBot || _battle.p2 == null) return;
+    _pulse?.cancel();
+    _pulse = Timer.periodic(const Duration(seconds: 3), (t) async {
+      if (!mounted) { t.cancel(); return; }
+      final p = await ref.read(battleRepoProvider).touch(_battle.id);
+      if (!mounted || p == null) return;
+      final away = p.paused;
+      if (away != _oppAway || p.canClaim != _canClaim) {
+        setState(() { _oppAway = away; _canClaim = p.canClaim; });
+        // Freezing the question clock is the whole point: an answer given
+        // while the opponent is offline is not a fair race, and a timeout
+        // suffered while they are offline is not a fair loss.
+        if (away) {
+          _tick?.cancel();
+        } else if (!_revealed && !_submitting) {
+          _resumeQuestionTimer();
+        }
+      }
+    });
+  }
+
+  /// Picks the clock up where it was left rather than restarting it, so a
+  /// pause does not hand the learner a free full-length question.
+  void _resumeQuestionTimer() {
+    _tick?.cancel();
+    _tick = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) { t.cancel(); return; }
+      setState(() => _secondsLeft--);
+      if (_secondsLeft <= 0) {
+        t.cancel();
+        if (!_revealed) _answer(null);
+      }
+    });
+  }
+
+  /// Takes the win when the opponent has been gone long enough. The server
+  /// checks the grace period itself, so pressing this early is harmless.
+  Future<void> _claimWin() async {
+    try {
+      final b = await ref.read(battleRepoProvider).claimForfeit(_battle.id);
+      if (!mounted) return;
+      setState(() { _battle = b; _oppForfeited = b.isFinished; });
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    }
   }
 
   // ── question flow ────────────────────────────────────────
@@ -646,6 +708,44 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
       child: Column(
         children: [
+          // The other side has gone quiet. Said out loud, because a frozen
+          // clock with no explanation reads as the app having hung.
+          if (_oppAway) ...[
+            SqPanel(
+              radius: 16,
+              padding: const EdgeInsets.all(13),
+              fill: AppColors.soft(AppColors.amber, true),
+              border: AppColors.line(AppColors.amber, true),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(tr('Қарсыластың байланысы үзілді — ойын кідіртілді'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12.5, height: 1.35,
+                      fontWeight: FontWeight.w800, color: Colors.white)),
+                  if (_canClaim) ...[
+                    const SizedBox(height: 10),
+                    SqLip(
+                      fill: AppColors.green,
+                      lip: AppColors.greenDeep,
+                      depth: 3,
+                      radius: 12,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      onTap: _claimWin,
+                      child: Center(
+                        child: Text(tr('Жеңісті ал'),
+                          style: const TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.w800,
+                            color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               SqSquareButton(PhosphorIconsBold.x,

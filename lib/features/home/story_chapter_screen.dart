@@ -39,13 +39,15 @@ class _StoryChapterScreenState extends ConsumerState<StoryChapterScreen> {
   bool _revealed = false;
   bool _finished = false;
 
-  /// Branch decisions made in this run.
+  /// Every branch this learner has ever taken, not just the ones in this
+  /// chapter.
   ///
-  /// Held in memory rather than persisted: a chapter is played in one sitting,
-  /// and the consequences are within it. Storing them would mean a new shape
-  /// in MetaState for something whose whole lifetime is four scenes, and a
-  /// half-remembered branch is worse than an honestly forgotten one.
-  final Set<String> _flags = {};
+  /// It used to be a plain in-memory set thrown away when the chapter closed,
+  /// which made one consequence unreachable by construction: chapter five
+  /// gates a scene on `friend`, and `friend` is only chosen in chapter two —
+  /// a different screen, a different instance, a set that no longer existed.
+  /// Seeded from MetaState here and written back the moment a choice is made.
+  Set<String> _flags = {};
 
   StoryChapter get _ch => kStory[widget.chapter];
   StoryScene get _s => _ch.scenes[_scene];
@@ -58,6 +60,7 @@ class _StoryChapterScreenState extends ConsumerState<StoryChapterScreen> {
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => ref.read(busyProvider.notifier).state = true);
     WidgetsBinding.instance.addPostFrameCallback((_) => _speakIfNeeded());
+    _flags = ref.read(metaProvider).storyFlags;
   }
 
   /// Cleared in deactivate() rather than dispose(): Riverpod invalidates `ref`
@@ -99,12 +102,16 @@ class _StoryChapterScreenState extends ConsumerState<StoryChapterScreen> {
     setState(() { _picked = choice; _revealed = true; });
   }
 
-  void _choose(StoryChoice c) {
+  Future<void> _choose(StoryChoice c) async {
     HapticFeedback.selectionClick();
     setState(() {
-      _flags.add(c.flag);
+      _flags = {..._flags, c.flag};
       _revealed = true;
     });
+    // Written now rather than when the chapter ends: a learner who closes the
+    // app after choosing still chose.
+    final saved = await ref.read(metaProvider.notifier).rememberStoryFlag(c.flag);
+    if (mounted) setState(() => _flags = saved);
   }
 
   Future<void> _next() async {

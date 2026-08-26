@@ -82,10 +82,10 @@ class WheelSlice {
     if (freezes > 0) return trp('{n} мұздатқыш', {'n': '$freezes'});
     if (lives > 0) return trp('{n} қосымша жан', {'n': '$lives'});
     if (coins > 0 && xp > 0) {
-      return trp('{x} XP · {c} тиын', {'x': '$xp', 'c': '$coins'});
+      return trp('{x} тәжірибе · {c} тиын', {'x': '$xp', 'c': '$coins'});
     }
     if (coins > 0) return trp('{n} тиын', {'n': '$coins'});
-    return trp('{n} XP', {'n': '$xp'});
+    return trp('{n} тәжірибе', {'n': '$xp'});
   }
 }
 

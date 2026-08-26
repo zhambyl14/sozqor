@@ -176,7 +176,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Future<void> _deleteAccount() async {
     final ok = await sqConfirm(context,
       title: tr('Аккаунтты жою'),
-      message: tr('Барлық сөзің, XP-ің, рейтингің және сериялар біржола '
+      message: tr('Барлық сөзің, тәжірибең, рейтингің және сериялар біржола '
           'өшеді. Мұны кері қайтару мүмкін емес.'),
       confirm: tr('Жалғастыру'),
       danger: true);

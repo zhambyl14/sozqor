@@ -127,7 +127,7 @@ class PublicProfileScreen extends ConsumerWidget {
                 icon: PhosphorIconsFill.lightning,
                 tint: AppColors.amber,
                 value: '${p?.xp ?? 0}',
-                label: tr('XP'))),
+                label: tr('Тәжірибе'))),
               const SizedBox(width: 9),
               Expanded(child: SqStat(
                 icon: PhosphorIconsFill.sword,

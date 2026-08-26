@@ -324,7 +324,7 @@ class _StoryChapterScreenState extends ConsumerState<StoryChapterScreen> {
           color: AppColors.text3(d))),
       const SizedBox(height: 22),
       Center(
-        child: SqChip(trp('+{n} XP', {'n': '120'}),
+        child: SqChip(trp('+{n} тәжірибе', {'n': '120'}),
           icon: PhosphorIconsFill.lightning,
           tint: AppColors.amber,
           radius: 999,

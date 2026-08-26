@@ -141,7 +141,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
     final ok = await sqConfirm(context,
       title: tr('Жаңа қонақ ретінде бастау'),
-      message: tr('Ескі аккаунтыңдағы сөздер мен XP сақтаулы тұр, бірақ оған '
+      message: tr('Ескі аккаунтыңдағы сөздер мен тәжірибе сақтаулы тұр, бірақ оған '
                   'тек қайта кіргенде ғана қайта қосыласың. Жаңадан бастасаң, '
                   'бос аккаунт ашылады.'),
       confirm: tr('Жаңадан бастау'),

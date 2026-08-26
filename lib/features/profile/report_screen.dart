@@ -88,7 +88,7 @@ class ReportScreen extends ConsumerWidget {
                               SqCountUp(total,
                                 size: 32, color: AppColors.text(d)),
                               const SizedBox(height: 2),
-                              Text(tr('апталық XP'),
+                              Text(tr('апталық тәжірибе'),
                                 style: TextStyle(
                                   fontSize: 11.5, fontWeight: FontWeight.w700,
                                   color: AppColors.text3(d))),
@@ -273,7 +273,7 @@ class ReportScreen extends ConsumerWidget {
                   tone: SqTone.ink,
                   height: 52,
                   onTap: () => Share.share(
-                    trp('SozQor-дағы апталық есебім: {xp} XP, '
+                    trp('SozQor-дағы апталық есебім: {xp} тәжірибе, '
                         '{words} сөз қайталадым, {days} күн белсендімін.', {
                       'xp': '$total',
                       'words': '$reviewed',

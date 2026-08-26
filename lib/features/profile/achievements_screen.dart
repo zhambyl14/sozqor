@@ -152,7 +152,7 @@ class AchievementsScreen extends ConsumerWidget {
         ],
 
         Text(
-          tr('Жетістік ашылғанда XP өзі қосылады.'),
+          tr('Жетістік ашылғанда тәжірибе өзі қосылады.'),
           style: TextStyle(
             fontSize: 11, height: 1.5, fontWeight: FontWeight.w600,
             color: AppColors.text4(d))),

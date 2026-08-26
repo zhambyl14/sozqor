@@ -195,7 +195,7 @@ class _AddWordScreenState extends ConsumerState<AddWordScreen> {
       ref.invalidate(eventProgressProvider);
       if (mounted) {
         sqSnack(context,
-          _isEdit ? tr('Жаңартылды') : tr('Сөз сақталды · +10 XP'));
+          _isEdit ? tr('Жаңартылды') : tr('Сөз сақталды · +10 тәжірибе'));
         Navigator.of(context).pop(true);
       }
     } catch (e) {

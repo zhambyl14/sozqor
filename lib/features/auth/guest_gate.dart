@@ -212,7 +212,7 @@ class _ClaimSheetState extends ConsumerState<_ClaimSheet> {
                     const SizedBox(width: 11),
                     Expanded(
                       child: Text(
-                        trp('Бәрі сақталады: {xp} XP · {words} сөз · {days} күн', {
+                        trp('Бәрі сақталады: {xp} тәжірибе · {words} сөз · {days} күн', {
                           'xp': '${p?.xp ?? 0}',
                           'words': '${p?.wordsTotal ?? 0}',
                           'days': '${p?.streak ?? 0}',

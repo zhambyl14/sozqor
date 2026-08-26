@@ -292,7 +292,7 @@ class _ExploreScreenState extends ConsumerState<ExploreScreen> {
       if (!mounted) return;
       sqSnack(context, n == 0
           ? tr('Барлығы сөздігіңде бар екен')
-          : trp('{p1} сөз қосылды · +{p2} XP', {'p1': '$n', 'p2': '${n * 10}'}));
+          : trp('{p1} сөз қосылды · +{p2} тәжірибе', {'p1': '$n', 'p2': '${n * 10}'}));
       setState(_picked.clear);
       // What was just saved is no longer a word to discover, so the list is
       // rebuilt without it rather than left showing stale rows.

@@ -82,7 +82,7 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
       refreshAll(ref);
       if (mounted) {
         sqSnack(context, xp > 0
-            ? trp('Сыйлық алынды: +{n} XP', {'n': '$xp'})
+            ? trp('Сыйлық алынды: +{n} тәжірибе', {'n': '$xp'})
             : tr('Сыйлық алынды'));
       }
     } catch (err) {
@@ -252,7 +252,7 @@ class _EventCard extends StatelessWidget {
           // finished event has been sitting on an uncollected prize.
           if (progress?.canClaim ?? false) ...[
             const SizedBox(height: 12),
-            SqAction(trp('Сыйлықты алу · +{n} XP', {'n': '${event.xpReward}'}),
+            SqAction(trp('Сыйлықты алу · +{n} тәжірибе', {'n': '${event.xpReward}'}),
               icon: PhosphorIconsFill.gift,
               tone: SqTone.green,
               height: 44,

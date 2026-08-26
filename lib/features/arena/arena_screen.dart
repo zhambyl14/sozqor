@@ -808,8 +808,8 @@ class _LeagueCard extends StatelessWidget {
                         color: AppColors.text(d))),
                     Text(
                       me == null
-                          ? tr('XP жинай баста — орның анықталады')
-                          : trp('{n}-орын · {xp} XP',
+                          ? tr('Тәжірибе жинай баста — орның анықталады')
+                          : trp('{n}-орын · {xp} тәжірибе',
                               {'n': '${me!.rank}', 'xp': '${me!.xp}'}),
                       style: TextStyle(
                         fontSize: 11.5, fontWeight: FontWeight.w600,

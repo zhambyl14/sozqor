@@ -143,7 +143,7 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
   Future<void> _claim() => _run(() async {
     final w = await ref.read(teamsRepoProvider).claimWeekly();
     if (mounted && w != null) {
-      sqSnack(context, trp('Апталық сыйлық алынды: +{n} XP', {'n': '${w.rewardXp}'}));
+      sqSnack(context, trp('Апталық сыйлық алынды: +{n} тәжірибе', {'n': '${w.rewardXp}'}));
     }
     refreshAll(ref);
   });
@@ -284,7 +284,7 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
             SqTile(
               leading: _Emblem(emblem: r.emblem, colour: r.colour, size: 38),
               title: r.tag.isEmpty ? r.name : '[${r.tag}] ${r.name}',
-              subtitle: trp('{n}/{max} мүше · {xp} XP',
+              subtitle: trp('{n}/{max} мүше · {xp} тәжірибе',
                 {'n': '${r.memberCount}', 'max': '20', 'xp': '${r.weekXp}'}),
               trailing: SqBadge(tr('Қосылу'),
                 tint: AppColors.primary, solid: true),
@@ -401,9 +401,9 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
               subtitle: switch (m.role) {
                 'owner'   => tr('Құрушы'),
                 'officer' => tr('Офицер'),
-                _         => trp('{n} XP қосты', {'n': '${m.contributedXp}'}),
+                _         => trp('{n} тәжірибе қосты', {'n': '${m.contributedXp}'}),
               },
-              trailing: SqNum(trp('{n} XP', {'n': '${m.weekXp}'}),
+              trailing: SqNum(trp('{n} тәжірибе', {'n': '${m.weekXp}'}),
                 size: 12,
                 color: m.capped ? AppColors.amberInk : AppColors.text3(d)),
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
@@ -493,7 +493,7 @@ class _WeeklyCard extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  trp('{n}/{need} мүше қосты · әркімнің шегі {cap} XP', {
+                  trp('{n}/{need} мүше қосты · әркімнің шегі {cap} тәжірибе', {
                     'n': '${w.contributors}',
                     'need': '${w.minContributors}',
                     'cap': '${w.capPerMember}',
@@ -548,7 +548,7 @@ class _WeeklyCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
             )
           else if (w.canClaim)
-            SqAction(trp('Сыйлықты алу · +{n} XP', {'n': '${w.rewardXp}'}),
+            SqAction(trp('Сыйлықты алу · +{n} тәжірибе', {'n': '${w.rewardXp}'}),
               icon: PhosphorIconsFill.gift,
               tone: SqTone.green,
               busy: busy,
@@ -562,7 +562,7 @@ class _WeeklyCard extends StatelessWidget {
                 fontSize: 12, height: 1.4, fontWeight: FontWeight.w700,
                 color: AppColors.amber))
           else
-            Text(trp('Сенің үлесің: {n} XP', {'n': '${w.myXp}'}),
+            Text(trp('Сенің үлесің: {n} тәжірибе', {'n': '${w.myXp}'}),
               style: const TextStyle(
                 fontSize: 12, fontWeight: FontWeight.w600,
                 color: AppColors.onInk2)),

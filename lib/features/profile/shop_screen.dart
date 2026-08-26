@@ -51,7 +51,7 @@ String _requirement(Cosmetic c) => switch (c.requiredMetric) {
   'battles_won'   => trp('{n} баттл жеңу', {'n': '${c.requiredAmount}'}),
   'words_total'   => trp('{n} сөз жинау', {'n': '${c.requiredAmount}'}),
   'words_learned' => trp('{n} сөзді меңгеру', {'n': '${c.requiredAmount}'}),
-  'xp'            => trp('{n} XP жинау', {'n': '${c.requiredAmount}'}),
+  'xp'            => trp('{n} тәжірибе жинау', {'n': '${c.requiredAmount}'}),
   'elo'           => trp('{n} Elo рейтинг', {'n': '${c.requiredAmount}'}),
   _               => tr('Ойнап аш'),
 };
@@ -262,7 +262,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Text(tr('Тиын әр ойыннан жиналады. XP-ің азаймайды.'),
+        Text(tr('Тиын әр ойыннан жиналады. Тәжірибең азаймайды.'),
           style: TextStyle(
             fontSize: 11, height: 1.5, fontWeight: FontWeight.w600,
             color: AppColors.text4(d))),

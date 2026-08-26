@@ -150,7 +150,7 @@ class _TournamentEditorScreenState
         ]),
 
         ModCard(title: tr('Мерзімі'), children: [
-          ModField(label: tr('XP сыйлығы'), controller: _xp, numeric: true),
+          ModField(label: tr('Тәжірибе сыйлығы'), controller: _xp, numeric: true),
           ModDateField(
             label: tr('Басталуы'),
             value: _startsAt,

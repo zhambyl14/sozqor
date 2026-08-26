@@ -232,7 +232,7 @@ class _ShopItemEditorScreenState extends ConsumerState<ShopItemEditorScreen> {
             children: [
               Expanded(
                 child: ModField(
-                  label: tr('Бағасы (XP)'),
+                  label: tr('Бағасы (тиын)'),
                   controller: _price,
                   numeric: true)),
               const SizedBox(width: 12),

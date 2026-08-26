@@ -158,7 +158,7 @@ class ProfileScreen extends ConsumerWidget {
                           size: 12, color: AppColors.text(d)),
                         const SizedBox(width: 10),
                         Flexible(
-                          child: Text(trp('келесі деңгейге {xp} XP',
+                          child: Text(trp('келесі деңгейге {xp} тәжірибе',
                               {'xp': '${profile?.xpToNextLevel ?? 100}'}),
                             textAlign: TextAlign.end,
                             style: TextStyle(

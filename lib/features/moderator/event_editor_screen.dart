@@ -275,7 +275,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             children: [
               Expanded(
                 child: ModField(
-                  label: tr('XP сыйлығы'),
+                  label: tr('Тәжірибе сыйлығы'),
                   controller: _xp,
                   numeric: true)),
               const SizedBox(width: 12),

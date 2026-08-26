@@ -249,7 +249,7 @@ class AdsService {
     final agreed = await sqConfirm(
       context,
       title: tr(reward.title),
-      message: '${tr(reward.pitch)}\n\n${tr('XP берілмейді — рейтинг таза қалады')}',
+      message: '${tr(reward.pitch)}\n\n${tr('Тәжірибе берілмейді — рейтинг таза қалады')}',
       confirm: tr('Жарнама көру'),
       cancel: tr('Кейін'),
       danger: false,

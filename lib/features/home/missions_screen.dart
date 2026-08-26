@@ -372,12 +372,12 @@ class _CurrentStep extends StatelessWidget {
             if (!claimable) ...[
               SqTrack(into, height: 9, background: AppColors.inkTrack),
               const SizedBox(height: 7),
-              Text(trp('{n} XP жинасаң ашылады', {'n': '$need'}),
+              Text(trp('{n} тәжірибе жинасаң ашылады', {'n': '$need'}),
                 style: const TextStyle(
                   fontSize: 12.5, fontWeight: FontWeight.w600,
                   color: AppColors.onInk2)),
               const SizedBox(height: 14),
-              SqAction(tr('XP жинау'),
+              SqAction(tr('Тәжірибе жинау'),
                 icon: PhosphorIconsFill.play,
                 onTap: onPlay),
             ] else ...[
@@ -508,9 +508,9 @@ class _PathNode extends ConsumerWidget {
                     switch (state) {
                       _NodeState.claimed   => tr('Алынды'),
                       _NodeState.claimable => tr('Алуға дайын'),
-                      _NodeState.current   => trp('{n} XP қалды',
+                      _NodeState.current   => trp('{n} тәжірибе қалды',
                           {'n': '$xpNeeded'}),
-                      _NodeState.locked    => trp('{n} XP жинағанда ашылады',
+                      _NodeState.locked    => trp('{n} тәжірибе жинағанда ашылады',
                           {'n': '$xpNeeded'}),
                     },
                     style: TextStyle(

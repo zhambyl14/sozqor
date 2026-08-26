@@ -891,7 +891,7 @@ class _QuestRowState extends ConsumerState<_QuestRow> {
     ref.invalidate(dailyProgressProvider);
     ref.invalidate(myProfileProvider);
     if (mounted) {
-      sqSnack(context, trp('+{xp} XP алынды!', {'xp': '${widget.quest.xp}'}));
+      sqSnack(context, trp('+{xp} тәжірибе алынды!', {'xp': '${widget.quest.xp}'}));
       setState(() => _busy = false);
     }
   }

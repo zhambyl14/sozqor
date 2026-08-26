@@ -1285,7 +1285,7 @@ class _ResultView extends ConsumerWidget {
                   const Icon(PhosphorIconsFill.star,
                     size: 18, color: AppColors.amber),
                   const SizedBox(width: 9),
-                  Text(trp('+{n} XP жиналды', {'n': '$score'}),
+                  Text(trp('+{n} тәжірибе жиналды', {'n': '$score'}),
                     style: TextStyle(
                       fontSize: 14, fontWeight: FontWeight.w800,
                       color: AppColors.text(d))),

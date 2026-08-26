@@ -22,6 +22,7 @@ import '../../services/sozqor_ai.dart';
 import '../../services/speech.dart';
 import '../play/play_session_screen.dart';
 import '../play/pronounce_screen.dart';
+import 'add_to_collection_sheet.dart';
 import 'add_word_screen.dart';
 
 class WordDetailScreen extends ConsumerStatefulWidget {
@@ -427,6 +428,18 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
                 height: 52,
                 onTap: _drill),
             ),
+            const SizedBox(width: 10),
+            // Filing a word away is a thing you decide while looking at it.
+            // Until now the only direction that worked was the other one:
+            // open a collection, then go hunting for the word.
+            SqSquareButton(PhosphorIconsFill.stack,
+              size: 52,
+              fill: AppColors.card(d),
+              border: AppColors.border(d),
+              lip: AppColors.surfaceLip(d),
+              onTap: () => showAddToCollectionSheet(context, ref,
+                dictionaryId: _word.dictionaryId,
+                label: '${_word.en} · ${_word.kk}')),
             const SizedBox(width: 10),
             SqSquareButton(PhosphorIconsFill.microphone,
               size: 52,

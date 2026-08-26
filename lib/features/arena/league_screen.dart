@@ -27,6 +27,7 @@ import '../../data/models/battle.dart';
 import '../../data/repos/league_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../auth/guest_gate.dart';
 import '../profile/public_profile_screen.dart';
 
 /// The band's own colour as the server sends it. The compiled palette is only
@@ -50,6 +51,7 @@ class LeagueScreen extends ConsumerWidget {
       onRefresh: () async {
         ref.invalidate(leagueStandingsProvider);
         ref.invalidate(leagueProgressProvider);
+        ref.invalidate(leagueRewardProvider);
         await Future<void>.delayed(const Duration(milliseconds: 350));
       },
       children: [
@@ -82,8 +84,13 @@ class LeagueScreen extends ConsumerWidget {
               children: [
                 if (band != null) ...[
                   _Crown(band),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                 ],
+
+                // The reason to climb. Everything above this line only ever
+                // told the learner where they stood.
+                const _LeagueChest(),
+                const SizedBox(height: 18),
 
                 // The whole ladder, so "where am I in all of this" is a look
                 // rather than a guess.
@@ -357,6 +364,129 @@ class _Row extends StatelessWidget {
             color: row.isMe ? AppColors.primaryDeep : AppColors.text2(d)),
         ],
         ),
+      ),
+    );
+  }
+}
+
+/// The band's chest: what standing here pays, and the button that takes it.
+///
+/// Two things arrive together and are claimed together — the weekly chest and
+/// the one-off for having climbed — because presenting them as two buttons
+/// would mean explaining the difference, and the learner does not care: they
+/// care that the ladder pays.
+class _LeagueChest extends ConsumerStatefulWidget {
+  const _LeagueChest();
+
+  @override
+  ConsumerState<_LeagueChest> createState() => _LeagueChestState();
+}
+
+class _LeagueChestState extends ConsumerState<_LeagueChest> {
+  bool _busy = false;
+
+  Future<void> _claim() async {
+    if (_busy) return;
+    if (!await requireAccount(context, ref, GuestFeature.league)) return;
+    if (!mounted) return;
+    setState(() => _busy = true);
+    try {
+      final got = await ref.read(leagueRepoProvider).claimReward();
+      ref.invalidate(leagueRewardProvider);
+      ref.invalidate(myProfileProvider);
+      if (!mounted) return;
+      if (got == null) {
+        sqSnack(context, tr('Бұл аптаның сыйлығы алынып қойған'));
+      } else {
+        sqSnack(context, trp('+{c} тиын · +{x} тәжірибе',
+            {'c': '${got.coins}', 'x': '${got.xp}'}));
+      }
+    } catch (e) {
+      if (mounted) sqSnack(context, humanError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    final r = ref.watch(leagueRewardProvider).valueOrNull;
+    // Null means an un-migrated server. A card that cannot say anything true
+    // should say nothing at all.
+    if (r == null) return const SizedBox.shrink();
+
+    final tint = sqHexColor(r.colour) ?? AppColors.amber;
+
+    return SqPanel(
+      radius: 20,
+      padding: const EdgeInsets.all(16),
+      fill: AppColors.soft(tint, d),
+      border: AppColors.line(tint, d),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              SqTintBox(PhosphorIconsFill.treasureChest,
+                tint: tint, size: 42, solid: true),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(trp('{tier} сыйлығы', {'tier': r.name}),
+                      style: TextStyle(
+                        fontSize: 14.5, height: 1.25,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.text(d))),
+                    const SizedBox(height: 2),
+                    Text(
+                      r.ready
+                          ? trp('{c} тиын · {x} тәжірибе',
+                              {'c': '${r.coins}', 'x': '${r.xp}'})
+                          : trp('Келесі аптада: {c} тиын · {x} тәжірибе',
+                              {'c': '${r.weeklyCoins}',
+                               'x': '${r.weeklyXp}'}),
+                      style: TextStyle(
+                        fontSize: 12, height: 1.3, fontWeight: FontWeight.w700,
+                        color: AppColors.onSoft(tint, d))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (r.promoReady) ...[
+            const SizedBox(height: 10),
+            Text(
+              trp('{n} лигаға көтерілгенің үшін бонус қосылды',
+                {'n': '${r.promoBands}'}),
+              style: TextStyle(
+                fontSize: 11.5, height: 1.4, fontWeight: FontWeight.w700,
+                color: AppColors.onSoft(tint, d))),
+          ],
+          if (r.nextCoins > 0) ...[
+            const SizedBox(height: 10),
+            Text(
+              trp('Келесі лигада апта сайын: {c} тиын · {x} тәжірибе',
+                {'c': '${r.nextCoins}', 'x': '${r.nextXp}'}),
+              style: TextStyle(
+                fontSize: 11.5, height: 1.4, fontWeight: FontWeight.w600,
+                color: AppColors.text3(d))),
+          ],
+          const SizedBox(height: 12),
+          SqAction(
+            r.ready ? tr('Сыйлықты алу') : tr('Сыйлық алынды'),
+            icon: r.ready
+                ? PhosphorIconsFill.gift
+                : PhosphorIconsFill.checkCircle,
+            tone: r.ready ? SqTone.primary : SqTone.ghost,
+            height: 48,
+            busy: _busy,
+            onTap: r.ready ? _claim : null),
+        ],
       ),
     );
   }

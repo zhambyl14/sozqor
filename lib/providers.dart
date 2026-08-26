@@ -785,6 +785,13 @@ final leagueRepoProvider = Provider((_) => LeagueRepo());
 final leagueProgressProvider = FutureProvider<LeagueProgress?>(
     (ref) => ref.watch(leagueRepoProvider).progress());
 
+/// What this learner's band owes them: the weekly chest and any promotion
+/// bonus. The one thing that makes the ladder worth climbing.
+final leagueRewardProvider = FutureProvider<LeagueReward?>((ref) {
+  ref.watch(authChangesProvider);
+  return ref.watch(leagueRepoProvider).reward();
+});
+
 /// Everybody on this learner's rung, ordered by rating.
 final leagueStandingsProvider = FutureProvider<List<LeagueRow>>(
     (ref) => ref.watch(leagueRepoProvider).standings());

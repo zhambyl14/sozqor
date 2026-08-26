@@ -149,6 +149,69 @@ class LeagueProgress {
   }
 }
 
+/// What standing in a band is worth.
+///
+/// The ladder used to be a list with nothing at the end of it — you could
+/// climb it and nothing happened. A band now pays a chest once an ISO week,
+/// bigger the higher you are, and pays again the first time you ever reach a
+/// new band. Both figures come from the server, so raising them later is a
+/// migration and not an app release.
+class LeagueReward {
+  final int tier;
+  final String nameKk, nameRu, colour;
+
+  /// This week's chest, and whether it is still unopened.
+  final bool weeklyReady;
+  final int weeklyCoins, weeklyXp;
+
+  /// The one-off for climbing, and how many bands it covers.
+  final bool promoReady;
+  final int promoBands, promoCoins, promoXp;
+
+  /// What the band above pays, which is the reason to keep going.
+  final int nextCoins, nextXp;
+
+  const LeagueReward({
+    required this.tier,
+    required this.nameKk,
+    required this.nameRu,
+    required this.colour,
+    required this.weeklyReady,
+    required this.weeklyCoins,
+    required this.weeklyXp,
+    required this.promoReady,
+    required this.promoBands,
+    required this.promoCoins,
+    required this.promoXp,
+    required this.nextCoins,
+    required this.nextXp,
+  });
+
+  factory LeagueReward.fromMap(Map<String, dynamic> m) => LeagueReward(
+    tier:        _int(m['tier']),
+    nameKk:      (m['name_kk'] ?? '').toString(),
+    nameRu:      (m['name_ru'] ?? '').toString(),
+    colour:      (m['colour'] ?? '').toString(),
+    weeklyReady: m['weekly_ready'] == true,
+    weeklyCoins: _int(m['weekly_coins']),
+    weeklyXp:    _int(m['weekly_xp']),
+    promoReady:  m['promo_ready'] == true,
+    promoBands:  _int(m['promo_bands']),
+    promoCoins:  _int(m['promo_coins']),
+    promoXp:     _int(m['promo_xp']),
+    nextCoins:   _int(m['next_coins']),
+    nextXp:      _int(m['next_xp']),
+  );
+
+  String get name => AppLang.isRu ? nameRu : nameKk;
+
+  bool get ready => weeklyReady || promoReady;
+
+  /// Everything waiting right now, added up — the two are claimed together.
+  int get coins => (weeklyReady ? weeklyCoins : 0) + (promoReady ? promoCoins : 0);
+  int get xp    => (weeklyReady ? weeklyXp : 0)    + (promoReady ? promoXp : 0);
+}
+
 class LeagueRepo {
   /// This learner's band, rating, and the threshold the next band opens at.
   ///
@@ -171,6 +234,31 @@ class LeagueRepo {
     return (res as List? ?? const [])
         .map((r) => LeagueRow.fromMap(Map<String, dynamic>.from(r as Map)))
         .toList();
+  }
+
+  /// What this learner's band owes them, if anything.
+  ///
+  /// Null on an un-migrated server, for the same reason [progress] is: an old
+  /// database should cost the screen one card, not the screen.
+  Future<LeagueReward?> reward() async {
+    try {
+      final res = await supa.rpc('league_reward_state');
+      if (res is! Map) return null;
+      return LeagueReward.fromMap(Map<String, dynamic>.from(res));
+    } on PostgrestException catch (e) {
+      if (_missing(e)) return null;
+      rethrow;
+    }
+  }
+
+  /// Opens the chest. Returns what was paid, or null when nothing was due —
+  /// the server decides that, not the button.
+  Future<({int coins, int xp, int bands})?> claimReward() async {
+    final res = await supa.rpc('claim_league_reward');
+    if (res is! Map) return null;
+    final m = Map<String, dynamic>.from(res);
+    if (m['claimed'] != true) return null;
+    return (coins: _int(m['coins']), xp: _int(m['xp']), bands: _int(m['bands']));
   }
 
   /// PGRST202 is PostgREST's "no such function in the schema cache" — the one

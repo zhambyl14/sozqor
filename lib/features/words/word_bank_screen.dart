@@ -20,6 +20,7 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import '../play/play_session_screen.dart';
 import 'add_word_screen.dart';
+import 'collections_screen.dart';
 import 'explore_screen.dart';
 import 'word_detail_screen.dart';
 
@@ -209,27 +210,35 @@ class _WordBankScreenState extends ConsumerState<WordBankScreen> {
                 ],
               ),
             ),
-            // EN-35 / KK-5: this was a bare 42pt compass glyph in the corner
-            // and nobody found it. It is the only way into the shared word
-            // catalogue, so it now says what it does.
-            SqLip(
-              fill: AppColors.card(d),
-              lip: AppColors.surfaceLip(d),
-              radius: 15,
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ExploreScreen())),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(PhosphorIconsBold.compass,
-                    size: 18, color: AppColors.primaryDeep),
-                  const SizedBox(width: 7),
-                  Text(tr('Жаңа сөздер табу'),
-                    style: TextStyle(
-                      fontSize: 12.5, fontWeight: FontWeight.w800,
-                      color: AppColors.text(d))),
-                ],
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // The two doors out of your own vocabulary: one to the shared
+        // catalogue, one to the lists you build out of it. The catalogue was
+        // a bare 42pt compass glyph in a corner that nobody found, and the
+        // collections were filed under Ойын, which is not where a word list
+        // belongs.
+        SqEqualRow(
+          children: [
+            Expanded(
+              child: _DoorTile(
+                icon: PhosphorIconsBold.compass,
+                tint: AppColors.primary,
+                title: tr('Жаңа сөздер табу'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ExploreScreen())),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _DoorTile(
+                icon: PhosphorIconsFill.stack,
+                tint: AppColors.amber,
+                title: tr('Сөз топтамалары'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CollectionsScreen())),
               ),
             ),
           ],
@@ -574,6 +583,51 @@ class _WordRow extends ConsumerWidget {
             MaterialPageRoute(builder: (_) => WordDetailScreen(word: word)));
           if (context.mounted) refreshAll(ref);
         },
+      ),
+    );
+  }
+}
+
+/// One of the two doors out of the learner's own vocabulary.
+///
+/// Deliberately identical to each other: neither the shared catalogue nor the
+/// collections is the more important of the two, and a pair of matching tiles
+/// says that better than a full-width panel and a small corner button did.
+class _DoorTile extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+  final String title;
+  final VoidCallback onTap;
+
+  const _DoorTile({
+    required this.icon,
+    required this.tint,
+    required this.title,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    return SqPanel(
+      radius: 18,
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+      fill: AppColors.soft(tint, d),
+      border: AppColors.line(tint, d),
+      onTap: onTap,
+      child: Row(
+        children: [
+          SqTintBox(icon, tint: tint, size: 34, solid: true),
+          const SizedBox(width: 10),
+          // Wraps rather than clipping: "Сөз топтамалары" does not fit on one
+          // line on a narrow phone, and a half-shown word is worse than two.
+          Expanded(
+            child: Text(title,
+              style: TextStyle(
+                fontSize: 12.5, height: 1.25, fontWeight: FontWeight.w800,
+                color: AppColors.text(d))),
+          ),
+        ],
       ),
     );
   }

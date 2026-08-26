@@ -36,6 +36,16 @@ String humanError(Object e) {
   }
 
   if (e is PostgrestException) {
+    // PGRST303 — "JWT issued at future". PostgREST compares the token's `iat`
+    // against the database clock with no tolerance at all, so a device whose
+    // own clock runs even slightly ahead gets locked out of every request
+    // with a raw JSON blob on the splash screen. It is not a login problem
+    // and it is not something retrying differently will fix, so the message
+    // names the one thing that will.
+    if (e.code == 'PGRST303' || e.message.contains('issued at future')) {
+      return tr('Құрылғының уақыты дұрыс емес. Телефон баптауларынан '
+                'уақытты автоматты етіп қойып, қайта кір.');
+    }
     if (e.code == '23505') return tr('Мұндай жазба бұрыннан бар');
     if (e.code == '42501') return tr('Рұқсат жоқ');
     if (e.code == '23503') return tr('Байланысты деректер табылмады');
@@ -47,6 +57,13 @@ String humanError(Object e) {
     final coded = _codedFailure(e.message);
     if (coded != null) return coded;
     return e.message;
+  }
+
+  // The same thing arriving as a plain string rather than a typed exception,
+  // which is how it reaches the splash screen through the guest sign-in.
+  if (raw.contains('PGRST303') || raw.contains('issued at future')) {
+    return tr('Құрылғының уақыты дұрыс емес. Телефон баптауларынан '
+              'уақытты автоматты етіп қойып, қайта кір.');
   }
 
   if (raw.contains('GUEST_LOCKED')) {

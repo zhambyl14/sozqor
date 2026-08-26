@@ -21,6 +21,7 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/question_factory.dart';
 import '../arena/battle_screen.dart';
+import '../arena/invite_wait_sheet.dart';
 import '../auth/guest_gate.dart';
 import 'public_profile_screen.dart';
 import 'worn_avatar.dart';
@@ -205,8 +206,14 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
       exclude: const {QKind.listening});
   }
 
-  /// Starts a battle against this friend directly — no invite code changes
-  /// hands, it simply appears in both people's pending invites.
+  /// Rings this friend and waits for them to answer.
+  ///
+  /// This used to call createFriendBattle, which makes an ACTIVE battle, and
+  /// then opened it — so tapping a friend's name started a two-person match
+  /// on one person's say-so. The friend saw a game that was already running,
+  /// and by the time they looked the sender had finished it and was
+  /// "waiting". Every challenge in the app now goes through the same
+  /// handshake.
   Future<void> _challenge(BoardRow row) async {
     if (!await requireAccount(context, ref, GuestFeature.friends)) return;
     if (!mounted || _challenging != null) return;
@@ -217,9 +224,10 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
         throw Exception(tr('Баттл үшін сөз жетпейді'));
       }
       final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
-      final battle = await ref.read(battleRepoProvider).createFriendBattle(
-        questions: questions, cefr: cefr, targetUserId: row.userId);
-      if (mounted) await _play(battle);
+      if (!mounted) return;
+      final accepted = await ringFriend(context, ref,
+          targetUserId: row.userId, questions: questions, cefr: cefr);
+      if (accepted != null && mounted) await _play(accepted);
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
     } finally {

@@ -21,14 +21,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
-import '../../core/constants/game_meta.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/battle.dart';
 import '../../data/repos/league_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
-import '../play/play_session_screen.dart';
 
 /// The band's own colour as the server sends it. The compiled palette is only
 /// a fallback for a band that arrives without one — it holds five shades for
@@ -119,14 +117,17 @@ class LeagueScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 16),
 
-                SqAction(tr('Рейтинг жинауға кірісу'),
-                  icon: PhosphorIconsFill.lightning,
-                  onTap: () async {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) =>
-                          const PlaySessionScreen(mode: PlayMode.classic)));
+                // This used to open a classic practice round, which earns
+                // тәжірибе and moves the rating by exactly nothing — the
+                // button promised the one thing it could not do. Rating comes
+                // from rated battles only, and those start on the Arena.
+                SqAction(tr('Рейтингті баттлға кірісу'),
+                  icon: PhosphorIconsFill.sword,
+                  tone: SqTone.danger,
+                  onTap: () {
                     ref.invalidate(leagueStandingsProvider);
                     ref.invalidate(leagueProgressProvider);
+                    Navigator.of(context).pop();
                   }),
               ],
             );

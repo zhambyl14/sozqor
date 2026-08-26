@@ -30,6 +30,7 @@ import '../auth/guest_gate.dart';
 import '../events/events_screen.dart';
 import '../play/play_session_screen.dart';
 import 'battle_screen.dart';
+import 'invite_wait_sheet.dart';
 import '../teams/teams_screen.dart';
 import 'leaderboard_screen.dart';
 import 'league_screen.dart';
@@ -107,18 +108,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
     if (!mounted) return;
     setState(() => _busy = true);
     try {
-      final repo = ref.read(battleRepoProvider);
-
-      // Asked before the invitation is built, so "they are in a match" is
-      // said in half a second rather than after fifteen of silence.
-      if (await repo.isBusy(opponentId)) {
-        if (mounted) {
-          sqSnack(context, tr('Досың қазір бос емес — басқа ойында'),
-              error: true);
-        }
-        return;
-      }
-
       final questions = await _buildQuestions();
       if (questions.length < 5) {
         if (mounted) {
@@ -127,17 +116,9 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         return;
       }
       final cefr = ref.read(myProfileProvider).valueOrNull?.cefrLevel ?? 'A1';
-      final invited = await repo.inviteFriend(
-          targetUserId: opponentId, questions: questions, cefr: cefr);
       if (!mounted) return;
-
-      final accepted = await showModalBottomSheet<Battle>(
-        context: context,
-        isDismissible: false,
-        enableDrag: false,
-        isScrollControlled: true,
-        builder: (_) => _InviteWaitSheet(battle: invited),
-      );
+      final accepted = await ringFriend(context, ref,
+          targetUserId: opponentId, questions: questions, cefr: cefr);
       if (accepted != null && mounted) await _openBattle(accepted);
     } catch (e) {
       if (mounted) sqSnack(context, humanError(e), error: true);
@@ -1118,126 +1099,6 @@ class _InviteCardState extends State<_InviteCard> {
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// What the SENDER looks at while a friend decides.
-///
-/// It polls the row rather than assuming: the battle becomes `active` only
-/// when the other side accepts, so this sheet is the only thing standing
-/// between "I tapped a name" and "we are both playing". It closes with the
-/// battle on yes, and with nothing at all on no.
-class _InviteWaitSheet extends ConsumerStatefulWidget {
-  final Battle battle;
-  const _InviteWaitSheet({required this.battle});
-
-  @override
-  ConsumerState<_InviteWaitSheet> createState() => _InviteWaitSheetState();
-}
-
-class _InviteWaitSheetState extends ConsumerState<_InviteWaitSheet> {
-  Timer? _poll;
-  int _left = 15;
-  String? _outcome;
-
-  @override
-  void initState() {
-    super.initState();
-    _poll = Timer.periodic(const Duration(milliseconds: 900), (_) => _check());
-  }
-
-  @override
-  void dispose() {
-    _poll?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _check() async {
-    if (!mounted) return;
-    setState(() => _left = widget.battle.inviteSecondsLeft);
-    try {
-      final live = await ref.read(battleRepoProvider).byId(widget.battle.id);
-      if (!mounted || live == null) return;
-      if (live.status == 'active') {
-        _poll?.cancel();
-        Navigator.of(context).pop(live);
-        return;
-      }
-      if (live.isDeclined) {
-        _poll?.cancel();
-        setState(() => _outcome = tr('Досың бас тартты'));
-        await Future<void>.delayed(const Duration(milliseconds: 1200));
-        if (mounted) Navigator.of(context).pop();
-      }
-    } catch (_) {/* a dropped poll is not worth an error message */}
-
-    if (_left <= 0 && _outcome == null && mounted) {
-      _poll?.cancel();
-      setState(() => _outcome = tr('Досың жауап бермеді'));
-      await Future<void>.delayed(const Duration(milliseconds: 1200));
-      if (mounted) Navigator.of(context).pop();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final d = isDark(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 26),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-        const SqSheetGrip(),
-        Text(tr('Шақыру жіберілді'),
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 19, fontWeight: FontWeight.w800,
-            letterSpacing: -0.4, color: AppColors.text(d))),
-        const SizedBox(height: 6),
-        if (_outcome == null) ...[
-          const Center(child: SizedBox(
-            width: 34, height: 34,
-            child: CircularProgressIndicator(strokeWidth: 3))),
-          const SizedBox(height: 16),
-          Text(tr('Досың жауабын күтіп тұрмыз. Ол қабылдаса, баттл екеуіңде '
-                  'бір уақытта басталады.'),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13, height: 1.45, fontWeight: FontWeight.w600,
-              color: AppColors.text3(d))),
-          const SizedBox(height: 14),
-          Center(
-            child: Text(trp('{n} секунд', {'n': '${_left.clamp(0, 15)}'}),
-              style: TextStyle(
-                fontSize: 22, fontWeight: FontWeight.w800,
-                color: AppColors.text(d))),
-          ),
-        ] else
-          Text(_outcome!,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15, height: 1.4, fontWeight: FontWeight.w800,
-              color: AppColors.text(d))),
-        const SizedBox(height: 18),
-        SqLip(
-          fill: AppColors.card(d),
-          lip: AppColors.line(AppColors.ink, d),
-          depth: 3,
-          radius: 14,
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          onTap: () => Navigator.of(context).pop(),
-          child: Center(
-            child: Text(tr('Жабу'),
-              style: TextStyle(
-                fontSize: 13.5, fontWeight: FontWeight.w800,
-                color: AppColors.text(d))),
-          ),
-        ),
-        const SizedBox(height: 6),
         ],
       ),
     );

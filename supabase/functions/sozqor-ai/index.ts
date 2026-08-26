@@ -51,8 +51,14 @@
 //
 // ── Function secrets ───────────────────────────────────────
 //   GEMINI_API_KEY      the one that matters (never commit it)
+//   GEMINI_API_KEY_2 … _5   optional spares, used automatically
 //   OPENROUTER_API_KEY  optional; chat and explain only
 //   SUPABASE_SERVICE_ROLE_KEY   injected by Supabase; required, see below
+//
+// The free Gemini tier has a daily cap, and with one key a single busy
+// afternoon takes the whole app's translation down. Every extra key is tried
+// in turn and benched on its own when it refuses, so a second one roughly
+// doubles the day and needs no code change to add.
 //
 // The OpenAI and FreeRouter secrets are no longer read at all. They can be
 // deleted from the function's settings.
@@ -72,8 +78,24 @@ const CORS = {
 };
 
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+/// As many Gemini keys as are configured, in order.
+///
+/// The free tier has a daily cap, and one key means one bad afternoon takes
+/// the whole app's translation down — which is exactly what happened. Each
+/// key is treated as its OWN provider by the cooldown below, so a 429 on the
+/// first one benches that key for ninety seconds and the second answers the
+/// very next word. Adding a third is a secret, not a deploy.
+const GEMINI_KEYS = [
+  Deno.env.get("GEMINI_API_KEY") ?? "",
+  Deno.env.get("GEMINI_API_KEY_2") ?? "",
+  Deno.env.get("GEMINI_API_KEY_3") ?? "",
+  Deno.env.get("GEMINI_API_KEY_4") ?? "",
+  Deno.env.get("GEMINI_API_KEY_5") ?? "",
+].filter((k) => k.length > 0);
+
+const HAS_GEMINI = GEMINI_KEYS.length > 0;
 
 // 2.5-flash first: on the probe it was both the most accurate and the fastest
 // (1.3-3.3s against 3.1-10.9s for 3.6-flash). 3.6-flash is the immediate
@@ -234,14 +256,15 @@ const callOpenRouter = (model: string, p: string, t: number, m: number) =>
   );
 
 async function callGemini(
+  key: string,
   model: string,
   prompt: string,
   temperature: number,
   maxTokens: number,
 ) {
-  if (!GEMINI_KEY) throw new Error(NO_KEY_MSG);
+  if (!key) throw new Error(NO_KEY_MSG);
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -284,10 +307,16 @@ function chain(
   trustedOnly: boolean,
 ): Attempt[] {
   const out: Attempt[] = [];
-  if (GEMINI_KEY) {
-    for (const m of GEMINI_MODELS) {
-      out.push({ id: `gemini/${m}`, run: () => callGemini(m, prompt, temperature, maxTokens) });
-    }
+  // Best model on EVERY key before falling back to a weaker model on any of
+  // them: a key that is out of quota should cost the learner one 150ms
+  // refusal, not a slower answer.
+  for (const m of GEMINI_MODELS) {
+    GEMINI_KEYS.forEach((key, i) => {
+      out.push({
+        id: `gemini${i + 1}/${m}`,
+        run: () => callGemini(key, m, prompt, temperature, maxTokens),
+      });
+    });
   }
   if (OPENROUTER_KEY && !trustedOnly) {
     for (const m of FREE_MODELS) {
@@ -942,8 +971,9 @@ Deno.serve(async (req) => {
     // probing lives in the separate `ai-probe` function.
     if (task === "health") {
       return ok({
-        gemini: GEMINI_KEY.length > 0,
-        gemini_models: GEMINI_KEY ? GEMINI_MODELS : null,
+        gemini: HAS_GEMINI,
+        gemini_keys: GEMINI_KEYS.length,
+        gemini_models: HAS_GEMINI ? GEMINI_MODELS : null,
         openrouter: OPENROUTER_KEY.length > 0,
         service_key: SERVICE_KEY.length > 0,
         order: chain("", 0, 0, true).map((a) => a.id),
@@ -1006,11 +1036,15 @@ Deno.serve(async (req) => {
       // is free in wall-clock terms.
       const primaryChain = chain(translatePrompt(term), 0.2, 1024, true);
       const first = withDeadline(completeFrom(primaryChain), TRANSLATE_DEADLINE);
+      // A different MODEL, not merely the next attempt in the list — with
+      // several keys configured the next attempt is the same model behind a
+      // different key, and asking one model twice is not a second opinion.
       const secondChain = chain(secondPrompt(term), 0.1, 400, true);
-      const second = secondChain.length > 1
-        // A different model from the one the primary will use, so agreement
-        // means two opinions rather than one model asked twice.
-        ? withDeadline(completeFrom(secondChain.slice(1)).catch(() => null), SECOND_DEADLINE)
+      const firstModel = secondChain[0]?.id.split("/")[1] ?? "";
+      const otherModels = secondChain.filter(
+        (a) => a.id.split("/")[1] !== firstModel);
+      const second = otherModels.length > 0
+        ? withDeadline(completeFrom(otherModels).catch(() => null), SECOND_DEADLINE)
         : Promise.resolve(null);
 
       let parsed: Entry | null = null;

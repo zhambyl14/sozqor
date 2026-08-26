@@ -72,6 +72,20 @@ class _AuthGateState extends ConsumerState<AuthGate> {
   bool _startingGuest = false;
   String? _guestError;
 
+  /// PGRST303 attempts already made.
+  ///
+  /// "JWT issued at future" is usually a second of clock skew between the
+  /// auth server and the database, and it clears itself. Showing the learner
+  /// a raw JSON error for something that would have worked on the next try
+  /// is what made this look like the app was broken.
+  int _clockRetries = 0;
+  static const _maxClockRetries = 3;
+
+  bool _isClockSkew(Object e) {
+    final s = e.toString();
+    return s.contains('PGRST303') || s.contains('issued at future');
+  }
+
   /// Set once a session that used to exist has gone away and could not be
   /// refreshed back. Nothing may silently mint a replacement guest while this
   /// is true — see [_openSession].
@@ -110,7 +124,15 @@ class _AuthGateState extends ConsumerState<AuthGate> {
       }
 
       await auth.signInAsGuest();
+      _clockRetries = 0;
     } catch (e) {
+      if (_isClockSkew(e) && _clockRetries < _maxClockRetries) {
+        _clockRetries++;
+        _startingGuest = false;
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (mounted) await _openSession();
+        return;
+      }
       if (mounted) setState(() => _guestError = humanError(e));
     } finally {
       _startingGuest = false;
@@ -173,13 +195,24 @@ class _AuthGateState extends ConsumerState<AuthGate> {
 
     return profile.when(
       loading: () => const SplashScreen(),
-      error: (e, _) => SplashScreen(
-        error: humanError(e),
-        onRetry: () {
-          _retries = 0;
-          ref.invalidate(myProfileProvider);
-        },
-      ),
+      error: (e, _) {
+        // The same skew reaching the profile request instead of the sign-in.
+        if (_isClockSkew(e) && _clockRetries < _maxClockRetries) {
+          _clockRetries++;
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) ref.invalidate(myProfileProvider);
+          });
+          return const SplashScreen();
+        }
+        return SplashScreen(
+          error: humanError(e),
+          onRetry: () {
+            _retries = 0;
+            _clockRetries = 0;
+            ref.invalidate(myProfileProvider);
+          },
+        );
+      },
       data: (p) {
         if (p == null) {
           if (_retries >= _maxRetries) {

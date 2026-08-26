@@ -90,15 +90,18 @@ const GEMINI_MODELS = [
 // MAX_TOKENS with an empty candidate. These floors are what the probe needed.
 const GEMINI_MIN_TOKENS = 2048;
 
-/// 2.5-flash accepts a thinking budget of zero and answers in about a second
-/// instead of seven. 3.6-flash rejects the same field with a 400, which is
-/// why this is a per-model fact rather than a setting.
-///
-/// Translation is lookup, not reasoning: the model either knows what
-/// "кітапхана" means or it does not, and no amount of deliberation invents
-/// the knowledge. Spending six seconds of hidden thought on it is six
-/// seconds a learner spends watching a spinner.
-const NO_THINK_MODELS = new Set(["gemini-2.5-flash"]);
+// Deliberately NOT setting thinkingConfig.
+//
+// It was tried: thinkingBudget 0 cuts a lookup from about eight seconds to
+// four and a half, and it was measured, and it was reverted — because with
+// thinking off, 2.5-flash answers "шаңырақ" with "shanyrak". WITH thinking it
+// answers "yurt crown". That is not a rounding error; "shanyrak" is the exact
+// defect this whole gate exists to catch, on the exact word the report named.
+//
+// Translation looked like lookup rather than reasoning. On a language with
+// this little training data it is neither: it is recall, and the model needs
+// room to do it. Three and a half seconds is what recall costs, and a cache
+// hit still returns in one.
 
 // The only two of the free OpenRouter models that answered at all when
 // probed; the rest 404 with "unavailable for free". Never used for anything
@@ -247,9 +250,6 @@ async function callGemini(
         generationConfig: {
           temperature,
           maxOutputTokens: Math.max(maxTokens, GEMINI_MIN_TOKENS),
-          ...(NO_THINK_MODELS.has(model)
-            ? { thinkingConfig: { thinkingBudget: 0 } }
-            : {}),
         },
       }),
       signal: AbortSignal.timeout(LLM_TIMEOUT),
@@ -819,6 +819,8 @@ const arbiterPrompt = (term: string, a: string, b: string) =>
 ///
 /// What does tell them apart is whether English actually has the word, so
 /// that is what gets asked, and only on the candidates the gate stopped.
+/// A "no" has to come with the real meaning, so a refusal still teaches the
+/// learner something instead of being a dead end.
 const loanwordPrompt = (term: string, candidate: string) =>
   `Is "${candidate}" a real English word that appears in English dictionaries,
 ` +
@@ -827,6 +829,8 @@ const loanwordPrompt = (term: string, candidate: string) =>
   `Words like "dombra", "yurt" and "kumis" ARE real English borrowings.
 ` +
   `A spelling invented on the spot is not.
+` +
+  `Think about what "${term}" actually MEANS before you answer.
 ` +
   `Return ONLY {"real": true or false, "en": "the correct English meaning if it is not real"}.`;
 
@@ -976,8 +980,17 @@ Deno.serve(async (req) => {
         if (exact) {
           // A row the ungated version already poisoned must not be served for
           // ever just because it is stored.
+          //
+          // A VERIFIED row is different: somebody wrote it on purpose. The
+          // gate cannot tell "baursak" for "бауырсақ" from an invented
+          // respelling — that is the whole reason the loanword check exists —
+          // so applying it to a hand-written row threw away the one source
+          // that is allowed to just know the answer, and sent the word back
+          // to the model that gets it wrong.
           const stored = target === "en" ? clean(exact.en) : clean(exact.kk);
-          const rot = srcLang === "en" ? null : gate(term, stored, target);
+          const rot = (srcLang === "en" || exact.verified === true)
+            ? null
+            : gate(term, stored, target);
           if (rot !== null) {
             await reportRejection(admin, term, stored, rot, target, "cache");
           } else if (isComplete(exact)) {
@@ -1056,14 +1069,14 @@ Deno.serve(async (req) => {
           );
           if (check !== null) {
             const j = parseJson(check.text) as Entry;
-            if (j?.real === true) {
+            const better = clean(j?.en);
+            // The real meaning outranks the verdict: if it named one, take it
+            // even when it also claimed the romanisation was a real word.
+            if (better && gate(term, better, "en") === null) {
+              parsed = { ...parsed, en: better };
+              failed = null;
+            } else if (j?.real === true) {
               failed = null;                    // a genuine borrowing
-            } else {
-              const better = clean(j?.en);
-              if (better && gate(term, better, "en") === null) {
-                parsed = { ...parsed, en: better };
-                failed = null;                  // it named the real word
-              }
             }
           }
         } catch {

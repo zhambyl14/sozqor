@@ -27,8 +27,6 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/question_factory.dart';
 import '../auth/guest_gate.dart';
-import '../events/events_screen.dart';
-import '../play/play_session_screen.dart';
 import 'battle_screen.dart';
 import 'invite_wait_sheet.dart';
 import '../teams/teams_screen.dart';
@@ -37,8 +35,6 @@ import 'league_screen.dart';
 import 'match_result_screen.dart';
 import 'room_screen.dart';
 import 'tournament_screen.dart';
-
-enum _Opponent { ranked, bot, friend }
 
 class ArenaScreen extends ConsumerStatefulWidget {
   const ArenaScreen({super.key});
@@ -49,7 +45,6 @@ class ArenaScreen extends ConsumerStatefulWidget {
 
 class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   bool _busy = false;
-  _Opponent _opponent = _Opponent.ranked;
 
   /// Battle rounds are built from the shared dictionary at the learner's
   /// level, so both sides always get the same fair set.
@@ -133,14 +128,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
     final opponentId = uid == null ? null : finished.oppId(uid);
     if (opponentId == null) return;
     await _inviteFriend(opponentId);
-  }
-
-  Future<void> _start() async {
-    switch (_opponent) {
-      case _Opponent.ranked: return _startRanked();
-      case _Opponent.bot:    return _startBot();
-      case _Opponent.friend: return _friendSheet();
-    }
   }
 
   Future<void> _startRanked() async {
@@ -250,7 +237,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
     final league = ref.watch(myLeagueProvider).valueOrNull ?? const <LeagueRow>[];
     final tournament = ref.watch(tournamentProvider).valueOrNull;
     final invites = ref.watch(pendingInvitesProvider).valueOrNull ?? const <Battle>[];
-    final playedDaily = ref.watch(playedDailyProvider).valueOrNull ?? false;
     final myRow = league.where((r) => r.isMe).firstOrNull;
 
     final played = profile?.battlesPlayed ?? 0;
@@ -352,12 +338,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           ],
         ],
 
-        _RatingPanel(
-          elo: profile?.elo ?? 1000,
-          rank: profile?.rankTitle ?? '—',
-          played: played, won: won, lost: lost),
-        const SizedBox(height: 14),
-
         SqInkCard(
           padding: const EdgeInsets.all(19),
           glow: AppColors.red,
@@ -386,50 +366,91 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 5),
+              Text(tr('Рейтингті көтеретін жалғыз режим'),
+                style: const TextStyle(
+                  fontSize: 11.5, height: 1.35,
+                  fontWeight: FontWeight.w600, color: AppColors.onInk2)),
               const SizedBox(height: 15),
-              Row(
-                children: [
-                  for (final o in _Opponent.values) ...[
-                    Expanded(
-                      child: SqChip(
-                        switch (o) {
-                          _Opponent.ranked => tr('Рейтинг'),
-                          _Opponent.bot => tr('Бот'),
-                          _Opponent.friend => tr('Дос'),
-                        },
-                        icon: switch (o) {
-                          _Opponent.ranked =>
-                            PhosphorIconsFill.globeHemisphereEast,
-                          _Opponent.bot => PhosphorIconsFill.robot,
-                          _Opponent.friend => PhosphorIconsFill.usersThree,
-                        },
-                        onInk: true,
-                        selected: _opponent == o,
-                        radius: 14,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 11),
-                        onTap: () => setState(() => _opponent = o),
-                      ),
-                    ),
-                    if (o != _Opponent.values.last) const SizedBox(width: 7),
-                  ],
-                ],
-              ),
+              // The three-way picker is gone. Bot practice and a game with a
+              // friend are still here, as the two small tiles under this card
+              // — neither of them touches the rating, and putting all three
+              // behind one button made them read as the same decision.
               const SizedBox(height: 15),
-              SqAction(
-                switch (_opponent) {
-                  _Opponent.ranked => tr('Қарсылас табу'),
-                  _Opponent.bot => tr('Ботпен ойнау'),
-                  _Opponent.friend => tr('Дос шақыру'),
-                },
+              SqAction(tr('Қарсылас табу'),
                 icon: PhosphorIconsFill.crosshair,
                 tone: SqTone.danger,
                 busy: _busy,
-                onTap: _busy ? null : _start),
+                onTap: _busy ? null : _startRanked),
             ],
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 11),
+
+        SqEqualRow(
+          children: [
+            Expanded(
+              child: SqLip(
+                fill: AppColors.card(d),
+                border: AppColors.border(d),
+                lip: AppColors.surfaceLip(d),
+                depth: 3,
+                radius: 16,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                onTap: _busy ? null : _startBot,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(PhosphorIconsFill.robot,
+                      size: 20, color: AppColors.sky),
+                    const SizedBox(height: 6),
+                    Text(tr('Ботпен жаттығу'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12, height: 1.3,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text(d))),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: SqLip(
+                fill: AppColors.card(d),
+                border: AppColors.border(d),
+                lip: AppColors.surfaceLip(d),
+                depth: 3,
+                radius: 16,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                onTap: _busy ? null : _friendSheet,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(PhosphorIconsFill.usersThree,
+                      size: 20, color: AppColors.primary),
+                    const SizedBox(height: 6),
+                    Text(tr('Досқа код жіберу'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12, height: 1.3,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text(d))),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // The rating and the room it puts you in, read together. With the
+        // duel card between them they were two unrelated numbers on one page.
+        _RatingPanel(
+          elo: profile?.elo ?? 1000,
+          rank: profile?.rankTitle ?? '—',
+          played: played, won: won, lost: lost),
+        const SizedBox(height: 9),
 
         _LeagueCard(
           rows: league,
@@ -442,62 +463,12 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           }),
         const SizedBox(height: 14),
 
+        // The daily challenge used to sit here as well as inside today's
+        // plan on the home screen, so the app held two ideas about whether it
+        // had been played. It belongs to the plan; the tournament keeps this
+        // row, paired with the group battle below.
         SqEqualRow(
           children: [
-            Expanded(
-              child: SqLip(
-                fill: playedDaily ? AppColors.muted(d) : AppColors.primary,
-                lip: playedDaily
-                    ? AppColors.surfaceLip(d)
-                    : AppColors.primaryDeep,
-                radius: 20,
-                padding: const EdgeInsets.all(15),
-                onTap: () async {
-                  if (playedDaily) {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const LeaderboardScreen(
-                        initialTab: LeaderboardTab.daily)));
-                    return;
-                  }
-                  if (!await requireAccount(
-                      context, ref, GuestFeature.daily)) {
-                    return;
-                  }
-                  if (!context.mounted) return;
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) =>
-                        const PlaySessionScreen(mode: PlayMode.daily)));
-                  if (mounted) {
-                    ref.invalidate(playedDailyProvider);
-                    refreshAll(ref);
-                  }
-                },
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(PhosphorIconsFill.globeHemisphereEast,
-                      size: 24,
-                      color: playedDaily
-                          ? AppColors.text3(d) : Colors.white),
-                    const SizedBox(height: 9),
-                    Text(tr('Күнделікті сынақ'),
-                      style: TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w800,
-                        color: playedDaily
-                            ? AppColors.text(d) : Colors.white)),
-                    Text(playedDaily
-                        ? tr('Нәтижені көр') : tr('Әлем бір жиынтық'),
-                      style: TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.w600,
-                        color: playedDaily
-                            ? AppColors.text3(d)
-                            : Colors.white.withValues(alpha: 0.82))),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 11),
             Expanded(
               child: SqLip(
                 fill: AppColors.card(d),
@@ -588,27 +559,9 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         _TeamCard(),
         const SizedBox(height: 20),
 
-        // Events sit in Arena rather than Play because they are the
-        // competitive side of the app: a moderator runs them, they rank
-        // people, and they hand out prizes. They had no entrance at all until
-        // now — the rows existed on the server and nothing ever showed them.
-        Consumer(
-          builder: (_, ref, __) {
-            final n = ref.watch(activeEventsProvider).valueOrNull?.length ?? 0;
-            return SqTile(
-              leading: const SqTintBox(PhosphorIconsFill.confetti,
-                  tint: AppColors.primary, size: 36),
-              title: tr('Ивенттер'),
-              subtitle: n > 0
-                  ? trp('{p1} ивент жүріп жатыр', {'p1': '$n'})
-                  : tr('Жаңасын күт'),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const EventsScreen())),
-            );
-          },
-        ),
-        const SizedBox(height: 20),
-
+        // Events used to live here. They are on the home screen now, where
+        // the learner starts their day — the Arena is about the rating and
+        // the modes that move it.
         SqSection(tr('Соңғы баттлдар')),
         _HistoryList(onChallenge: _rematchFriend),
       ],

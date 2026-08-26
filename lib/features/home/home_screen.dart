@@ -29,8 +29,8 @@ import '../../data/supa.dart';
 import '../../providers.dart';
 import '../../services/meta_store.dart';
 import '../../services/sozqor_ai.dart';
-import '../../services/speech.dart';
 import '../arena/leaderboard_screen.dart';
+import '../events/events_screen.dart';
 import '../auth/guest_gate.dart';
 import '../play/play_session_screen.dart';
 import '../profile/friends_screen.dart';
@@ -167,20 +167,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         )),
         const SizedBox(height: 14),
 
-        // The missions card used to sit beside the chest, repeating a level
-        // and a bar that belong to today's work. That line lives in the plan
-        // now, so the chest keeps the row to itself.
-        _ChestCard(meta: meta, onTap: () => _open(const ChestScreen())),
-        const SizedBox(height: 14),
-
-        // EN-10: a word the learner does not have yet, offered with a way to
-        // save it. Until the level pool arrives there is nothing to show, and
-        // a learner with an empty bank is pointed at adding their first word
-        // instead.
+        // The two things the day GIVES you, side by side: a chest to open
+        // and a word to take. They were a full-width card each, which made
+        // the first screen a column of large blocks you had to scroll past to
+        // reach anything you could actually do.
         if (dailyWord != null)
-          _WordOfDay(key: ValueKey(dailyWord.id), entry: dailyWord)
-        else if (words.isEmpty)
-          _FirstWordCard(onTap: () => _open(const AddWordScreen())),
+          SqEqualRow(
+            children: [
+              Expanded(child: _ChestCard(
+                meta: meta,
+                compact: true,
+                onTap: () => _open(const ChestScreen()))),
+              const SizedBox(width: 9),
+              Expanded(child: _WordOfDayTile(
+                key: ValueKey(dailyWord.id), entry: dailyWord)),
+            ],
+          )
+        else ...[
+          _ChestCard(meta: meta, onTap: () => _open(const ChestScreen())),
+          if (words.isEmpty) ...[
+            const SizedBox(height: 14),
+            _FirstWordCard(onTap: () => _open(const AddWordScreen())),
+          ],
+        ],
         const SizedBox(height: 18),
 
         // Everything else the app can do lives one tap away instead of being
@@ -199,11 +208,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               tint: AppColors.sky,
               onTap: () => _open(const FriendsScreen()))),
             const SizedBox(width: 9),
+            // Events moved off the Arena, which is about the rating and the
+            // modes that move it. They belong where the day starts.
             Expanded(child: _Shortcut(
-              icon: PhosphorIconsFill.chartLineUp,
-              label: tr('Есеп'),
+              icon: PhosphorIconsFill.confetti,
+              label: tr('Ивенттер'),
               tint: AppColors.green,
-              onTap: () => _open(const ReportScreen()))),
+              onTap: () => _open(const EventsScreen()))),
           ],
         ),
       ],
@@ -784,7 +795,14 @@ class _DayCell extends StatelessWidget {
 class _ChestCard extends StatelessWidget {
   final MetaState meta;
   final VoidCallback onTap;
-  const _ChestCard({required this.meta, required this.onTap});
+
+  /// Half a row rather than the whole of one. The streak line is the first
+  /// thing to go: at this width it wraps to three lines and pushes the card
+  /// taller than the tile beside it.
+  final bool compact;
+
+  const _ChestCard({
+    required this.meta, required this.onTap, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -838,7 +856,7 @@ class _ChestCard extends StatelessWidget {
             style: TextStyle(
               fontSize: 13.5, fontWeight: FontWeight.w800,
               color: ready ? Colors.white : AppColors.text(isDark(context)))),
-          Text(
+          if (!compact) Text(
             ready
                 ? trp('{n}-күн қатарынан', {'n': '${meta.nextChestStreak}'})
                 : tr('Ертең жаңасы келеді'),
@@ -919,116 +937,12 @@ class _QuestRowState extends ConsumerState<_QuestRow> {
   }
 }
 
-// ── Word of the day ────────────────────────────────────────
-
-class _WordOfDay extends ConsumerStatefulWidget {
-  final DictEntry entry;
-  const _WordOfDay({super.key, required this.entry});
-
-  @override
-  ConsumerState<_WordOfDay> createState() => _WordOfDayState();
-}
-
-class _WordOfDayState extends ConsumerState<_WordOfDay> {
-  bool _busy = false;
-  /// Set once this word is known to be in the bank — either it already was,
-  /// or this screen just put it there.
-  bool _saved = false;
-
-  /// EN-10: adds the word of the day, and says so plainly when it is already
-  /// saved instead of quietly making a second copy.
-  ///
-  /// The check is a server query rather than a look through the loaded words,
-  /// because the bank is paged now and its in-memory list is only the pages
-  /// scrolled so far — asking it would call a word new whenever it happened
-  /// to sit on a page nobody had reached.
-  Future<void> _add() async {
-    if (_busy || _saved) return;
-    if (!await requireAccount(context, ref, GuestFeature.saveWord)) return;
-    if (!mounted) return;
-    setState(() => _busy = true);
-    final e = widget.entry;
-    try {
-      if (await ref.read(wordsRepoProvider).exists(e.kk, e.en)) {
-        if (!mounted) return;
-        setState(() { _saved = true; _busy = false; });
-        sqSnack(context, tr('Бұл сөз сөздігіңде бар'));
-        return;
-      }
-      await ref.read(wordsRepoProvider).addFromDict(e);
-      await ref.read(profileRepoProvider).bumpWordsAdded();
-      if (!mounted) return;
-      setState(() { _saved = true; _busy = false; });
-      refreshAll(ref);
-      sqSnack(context, tr('Сөздікке қосылды'));
-    } catch (err) {
-      if (!mounted) return;
-      setState(() => _busy = false);
-      sqSnack(context, humanError(err), error: true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final d = isDark(context);
-    final e = widget.entry;
-    final lang = ref.watch(nativeLangProvider);
-
-    // One line of content and two actions. The definition, the level badge
-    // and everything else lived here in the first cut and turned a nice
-    // moment into another paragraph — they are on the word card, one tap
-    // away, where someone who actually wants them will look.
-    return SqPanel(
-      padding: const EdgeInsets.fromLTRB(17, 15, 15, 15),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SqEyebrow(tr('Күннің сөзі')),
-                    const SizedBox(height: 5),
-                    Text(e.en,
-                      style: TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.w800,
-                        letterSpacing: -0.7, color: AppColors.text(d))),
-                    Text(e.native(lang),
-                      style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w700,
-                        color: AppColors.primary)),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              SqSquareButton(PhosphorIconsFill.speakerHigh,
-                size: 46,
-                fill: AppColors.inkBlock(d),
-                lip: AppColors.inkBlockLip(d),
-                iconColor: Colors.white,
-                onTap: () => Speech.instance.say(
-                  e.en.toLowerCase().startsWith('to ')
-                      ? e.en.substring(3) : e.en)),
-            ],
-          ),
-          const SizedBox(height: 13),
-          SqAction(
-            _saved ? tr('Сөздігіңде бар') : tr('Сөздікке қосу'),
-            icon: _saved
-                ? PhosphorIconsFill.checkCircle
-                : PhosphorIconsBold.plus,
-            tone: _saved ? SqTone.ghost : SqTone.primary,
-            height: 46,
-            busy: _busy,
-            onTap: _saved ? null : _add),
-        ],
-      ),
-    );
-  }
-}
+// ── Word of the day ────────────────────────────────
+//
+// The full-width card is gone. It shared the first screen with the chest,
+// two large blocks stacked, and the learner scrolled past both to reach
+// anything they could act on. _WordOfDayTile at the foot of this file is
+// what replaced it: half a row, the word, and the one button that matters.
 
 class _FirstWordCard extends StatelessWidget {
   final VoidCallback onTap;
@@ -1062,3 +976,112 @@ class _FirstWordCard extends StatelessWidget {
   }
 }
 
+/// The word of the day when it has to share a row with the chest.
+///
+/// The full card carries a definition, an example and a pronounce button;
+/// none of that fits in half a row and none of it is the point here. The
+/// point is a word you do not have and one tap to take it — everything else
+/// is on the word's own screen, which is what tapping the tile opens.
+class _WordOfDayTile extends ConsumerStatefulWidget {
+  final DictEntry entry;
+  const _WordOfDayTile({super.key, required this.entry});
+
+  @override
+  ConsumerState<_WordOfDayTile> createState() => _WordOfDayTileState();
+}
+
+class _WordOfDayTileState extends ConsumerState<_WordOfDayTile> {
+  bool _busy = false;
+  bool _saved = false;
+
+  Future<void> _add() async {
+    if (_busy || _saved) return;
+    if (!await requireAccount(context, ref, GuestFeature.saveWord)) return;
+    if (!mounted) return;
+    setState(() => _busy = true);
+    final e = widget.entry;
+    try {
+      final repo = ref.read(wordsRepoProvider);
+      // Asked of the server rather than of the loaded list: the bank is paged,
+      // so its in-memory copy is only the pages scrolled so far and a word
+      // sitting on an unread page would be called new.
+      final already = await repo.exists(e.kk, e.en);
+      if (!already) {
+        await repo.addFromDict(e);
+        await ref.read(profileRepoProvider).bumpWordsAdded();
+        refreshAll(ref);
+      }
+      if (mounted) {
+        setState(() => _saved = true);
+        sqSnack(context, already
+            ? tr('Бұл сөз сөздігіңде бар')
+            : tr('Сөздікке қосылды'));
+      }
+    } catch (err) {
+      if (mounted) sqSnack(context, humanError(err), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    final e = widget.entry;
+    final lang = ref.watch(nativeLangProvider);
+
+    return SqLip(
+      fill: AppColors.card(d),
+      border: AppColors.border(d),
+      lip: AppColors.surfaceLip(d),
+      depth: 3,
+      radius: 20,
+      padding: const EdgeInsets.all(15),
+      // No onTap to a detail screen: WordDetailScreen takes a Word, and this
+      // is a dictionary row the learner does not own yet. Adding it is the
+      // whole interaction, and that is the button below.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text(e.emoji ?? '✨', style: const TextStyle(fontSize: 22)),
+              const Spacer(),
+              SqBadge(e.cefr, tint: AppColors.sky, size: 9.5),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Text(tr('Күн сөзі'),
+            style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w700,
+              color: AppColors.text4(d))),
+          Text(e.en,
+            style: TextStyle(
+              fontSize: 15, height: 1.2, fontWeight: FontWeight.w800,
+              color: AppColors.text(d))),
+          Text(e.native(lang),
+            style: TextStyle(
+              fontSize: 12, height: 1.3, fontWeight: FontWeight.w600,
+              color: AppColors.text3(d))),
+          const SizedBox(height: 10),
+          SqLip(
+            fill: _saved ? AppColors.muted(d) : AppColors.primary,
+            lip: _saved ? AppColors.surfaceLip(d) : AppColors.primaryDeep,
+            depth: 3,
+            radius: 12,
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            onTap: _saved || _busy ? null : _add,
+            child: Center(
+              child: Text(_saved ? tr('Қосылды') : tr('Сөздікке қосу'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11.5, fontWeight: FontWeight.w800,
+                  color: _saved ? AppColors.text3(d) : Colors.white)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

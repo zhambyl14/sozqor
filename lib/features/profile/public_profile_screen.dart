@@ -24,6 +24,7 @@ import '../../data/models/profile.dart';
 import '../../data/repos/cosmetics_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../arena/league_icons.dart';
 import '../auth/guest_gate.dart';
 import 'achievements_screen.dart';
 import 'worn_avatar.dart';
@@ -116,7 +117,20 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
           onBack: () => Navigator.of(context).pop()),
         const SizedBox(height: 16),
 
-        if (async.hasError)
+        // Until the row arrives there is nothing true to draw. Before this
+        // the screen rendered the defaults — a nameless avatar over "…", a
+        // rating of 1000, a streak of 0, level 1 — which is not a profile
+        // loading, it is a profile that looks wrong and then changes.
+        if (async.isLoading && p == null) ...[
+          const SqShimmer(height: 190, radius: 26),
+          const SizedBox(height: 14),
+          const SqShimmer(height: 66, radius: 18),
+          const SizedBox(height: 14),
+          const SqShimmer(height: 74, radius: 18),
+          const SizedBox(height: 10),
+          const SqShimmer(height: 74, radius: 18),
+        ]
+        else if (async.hasError)
           SqEmpty(
             icon: PhosphorIconsFill.warningCircle,
             title: tr('Профиль ашылмады'),
@@ -186,6 +200,14 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
           // Which league they are standing in. A ladder nobody can see you on
           // is not a ladder, and this is the only place another person could
           // ever be seen on it.
+          // The band block reserves its height rather than appearing late
+          // and pushing everything below it down the screen.
+          if (meta == null) ...[
+            const SqShimmer(height: 66, radius: 18),
+            const SizedBox(height: 10),
+            const SqShimmer(height: 48, radius: 14),
+            const SizedBox(height: 14),
+          ],
           if (meta != null) ...[
             SqPanel(
               radius: 18,
@@ -196,7 +218,9 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
                 sqHexColor(meta['tier_colour']?.toString()) ?? AppColors.amber, d),
               child: Row(
                 children: [
-                  SqTintBox(PhosphorIconsFill.shieldChevron,
+                  SqTintBox(
+                    leagueIcon(
+                      (meta['tier'] as num?)?.toInt() ?? 0),
                     tint: sqHexColor(meta['tier_colour']?.toString())
                         ?? AppColors.amber,
                     size: 38, solid: true),
@@ -282,11 +306,14 @@ class _PublicProfileScreenState extends ConsumerState<PublicProfileScreen> {
           const SizedBox(height: 10),
           SqEqualRow(
             children: [
+              // "Ағылшын деңгейі", not "Деңгей": the chip under the name is
+              // already a level, and two different numbers under one word is
+              // how a profile stops being readable.
               Expanded(child: SqStat(
                 icon: PhosphorIconsFill.chartBar,
                 tint: AppColors.sky,
                 value: p?.cefrLevel ?? 'A1',
-                label: tr('Деңгей'))),
+                label: tr('Ағылшын деңгейі'))),
               const SizedBox(width: 9),
               Expanded(child: SqStat(
                 icon: PhosphorIconsFill.trophy,

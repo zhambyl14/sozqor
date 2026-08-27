@@ -28,6 +28,7 @@ import '../../data/repos/league_repo.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
 import '../auth/guest_gate.dart';
+import 'league_icons.dart';
 import '../profile/public_profile_screen.dart';
 
 /// The band's own colour as the server sends it. The compiled palette is only
@@ -183,7 +184,7 @@ class _Crown extends StatelessWidget {
                   color: tint.withValues(alpha: 0.22),
                   borderRadius: BorderRadius.circular(15)),
                 alignment: Alignment.center,
-                child: Icon(PhosphorIconsFill.shieldStar, size: 23, color: tint),
+                child: Icon(leagueIcon(p.tier), size: 23, color: tint),
               ),
               const SizedBox(width: 13),
               Expanded(
@@ -285,15 +286,19 @@ class _Rung extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(color: tint, shape: BoxShape.circle)),
+              // The badge, not a dot: seven rows told apart by colour alone
+              // are seven rows nobody can tell apart in a hurry.
+              Icon(leagueIcon(band.tier),
+                size: here ? 17 : 15,
+                color: here ? AppColors.onSoft(tint, d) : tint),
               const SizedBox(width: 6),
-              Text(band.name,
-                style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w800,
-                  color: here
-                      ? AppColors.onSoft(tint, d) : AppColors.text2(d))),
+              Flexible(
+                child: Text(band.name,
+                  style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w800,
+                    color: here
+                        ? AppColors.onSoft(tint, d) : AppColors.text2(d))),
+              ),
             ],
           ),
           const SizedBox(height: 4),

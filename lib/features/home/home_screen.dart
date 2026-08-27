@@ -184,11 +184,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           )
         else ...[
-          _ChestCard(meta: meta, onTap: () => _open(const ChestScreen())),
-          if (words.isEmpty) ...[
-            const SizedBox(height: 14),
-            _FirstWordCard(onTap: () => _open(const AddWordScreen())),
-          ],
+          // No word of the day today, so the chest shares the row with
+          // whatever else is due rather than becoming a banner again.
+          SqEqualRow(
+            children: [
+              Expanded(child: _ChestCard(
+                meta: meta,
+                compact: true,
+                onTap: () => _open(const ChestScreen()))),
+              const SizedBox(width: 9),
+              if (words.isEmpty)
+                Expanded(child: _FirstWordCard(
+                  onTap: () => _open(const AddWordScreen())))
+              else
+                const Expanded(child: SizedBox.shrink()),
+            ],
+          ),
         ],
         const SizedBox(height: 18),
 
@@ -878,8 +889,12 @@ class _ChestCard extends StatelessWidget {
       fill: ready ? AppColors.amber : AppColors.card(d),
       lip: ready ? AppColors.amberDeep : AppColors.border(d),
       border: ready ? null : AppColors.border(d),
-      radius: 20,
-      padding: const EdgeInsets.all(15),
+      radius: compact ? 18 : 20,
+      // Compact used only to mean "hide the second line", so the card kept a
+      // full-size icon and full-size padding and still ate a third of the
+      // first screen. Half of that is a tile; the other half was the chest
+      // shouting.
+      padding: EdgeInsets.all(compact ? 11 : 15),
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -887,15 +902,19 @@ class _ChestCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              ready
+              // The float animation is a ticker, and a ticker is worth it on a
+              // card somebody is looking at, not on a tile beside another one.
+              ready && !compact
                   ? const SqFloat(
                       child: Icon(PhosphorIconsFill.gift,
                         size: 26, color: Colors.white))
                   : Icon(PhosphorIconsFill.gift,
-                      size: 26, color: AppColors.text4(d)),
+                      size: compact ? 19 : 26,
+                      color: ready ? Colors.white : AppColors.text4(d)),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 5 : 6, vertical: compact ? 2 : 3),
                 decoration: BoxDecoration(
                   color: ready
                       ? Colors.black.withValues(alpha: 0.18)
@@ -903,16 +922,19 @@ class _ChestCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6)),
                 child: SqNum(
                   ready ? tr('ДАЙЫН') : _untilMidnight(),
-                  size: 9.5,
+                  size: compact ? 8.5 : 9.5,
                   color: ready
                       ? Colors.white : AppColors.text3(isDark(context))),
               ),
             ],
           ),
-          const SizedBox(height: 9),
+          SizedBox(height: compact ? 6 : 9),
           Text(tr('Сыйлық сандығы'),
+            maxLines: 2,
             style: TextStyle(
-              fontSize: 13.5, fontWeight: FontWeight.w800,
+              fontSize: compact ? 12 : 13.5,
+              height: 1.2,
+              fontWeight: FontWeight.w800,
               color: ready ? Colors.white : AppColors.text(isDark(context)))),
           if (!compact) Text(
             ready

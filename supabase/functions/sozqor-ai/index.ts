@@ -15,6 +15,20 @@
 //   жалаңаш     naked ✓             naked ✓            502 / empty  "" / 404
 //   мұғалім     teacher ✓           teacher ✓          502 / empty  teacher ✓
 //
+// Accuracy chose that order; quota later overruled it. On the free tier each
+// full Flash model gets 20 requests a DAY, and the console showed all three
+// of ours past that limit — so the app spent most of every day with nothing
+// left to ask. 3.5-flash-lite gets 500 a day and 15 a minute, and probed just
+// as well on the hard words, in a third of the time:
+//
+//   word        gemini-3.5-flash-lite      gemini-3.1-flash-lite
+//   шаңырақ     yurt crown ✓ (1.2s)        shanyrak ✗
+//   домбыра     dombra ✓ (0.9s)            dombra ✓
+//   бауырсақ    baursak ✓ (0.6s)           baursak ✓
+//   жалаңаш     naked ✓ (1.0s)             naked ✓
+//
+// So the plentiful model leads and the twenty-a-day ones are the reserve.
+//
 // and every OpenAI model, on every word:
 //   429 "You exceeded your current quota".
 //
@@ -97,11 +111,26 @@ const GEMINI_KEYS = [
 
 const HAS_GEMINI = GEMINI_KEYS.length > 0;
 
-// 2.5-flash first: on the probe it was both the most accurate and the fastest
-// (1.3-3.3s against 3.1-10.9s for 3.6-flash). 3.6-flash is the immediate
-// fallback because the free tier answers 429 under load, and flash-latest
-// last because it is the one that returns 503 "high demand".
+// Flash-Lite first, and the reason is quota rather than taste.
+//
+// On the free tier every one of the full Flash models is capped at 20
+// requests A DAY — 2.5-flash, 3.6-flash and 3.7-flash each — while
+// 3.5-flash-lite is capped at 500, with 15 requests a minute against their 5.
+// The console showed the three of them at 23, 34 and 38 against a limit of
+// 20: the app had been living past the end of its budget every day, which is
+// the whole of "ии тоқтап тұр".
+//
+// It was probed before it was trusted, on the words this gate exists for.
+// 3.5-flash-lite answers "шаңырақ" with "yurt crown", "домбыра" with
+// "dombra", "бауырсақ" with "baursak" — and does it in about a second, three
+// times faster than 2.5-flash. 3.1-flash-lite answers "shanyrak" and is
+// therefore not in this list at all; 2.5-flash-lite 404s on this key.
+//
+// The full Flash models stay, last, as the twenty-a-day reserve for when the
+// lite tier is spent or refuses.
 const GEMINI_MODELS = [
+  "gemini-3.5-flash-lite",
+  "gemini-flash-lite-latest",
   "gemini-2.5-flash",
   "gemini-3.6-flash",
   "gemini-flash-latest",
@@ -278,7 +307,15 @@ async function callGemini(
       signal: AbortSignal.timeout(LLM_TIMEOUT),
     },
   );
-  if (res.status === 429) throw new Error(`429 gemini/${model}`);
+  // The body is kept, not discarded: Google says in it whether the quota
+  // that ran out was the per-minute one or the per-day one, and how long to
+  // wait. Benching a model for ninety seconds when its DAILY budget is gone
+  // means re-probing it forty times an hour for nothing.
+  if (res.status === 429) {
+    throw new Error(
+      `429 gemini/${model} ${(await res.text().catch(() => "")).slice(0, 400)}`,
+    );
+  }
   if (!res.ok) {
     throw new Error(`${res.status} gemini/${model} ${(await res.text().catch(() => "")).slice(0, 160)}`);
   }
@@ -344,22 +381,54 @@ const FLAKY_COOLDOWN = 60_000;
 /// puts it on the bench, because a one-off 503 there is genuinely transient.
 const FLAKY = new Set(["openrouter"]);
 
+/// A model that does not exist will not exist in ninety seconds either.
+const GONE_COOLDOWN = 6 * 60 * 60_000;
+
+/// What gets benched when an attempt refuses.
+///
+/// For Gemini it is the MODEL, not the key. Every model on a Gemini key has
+/// its own per-minute and per-day allowance — the console prints one row per
+/// model — so 2.5-flash running out of its twenty-a-day says nothing at all
+/// about 3.5-flash-lite, which still has hundreds. Benching the key on that
+/// refusal is what took the whole chain down for ninety seconds at a time,
+/// over and over, from roughly the twentieth lookup of the day onwards.
+///
+/// OpenRouter is different and stays keyed by vendor: there the daily
+/// allowance belongs to the account, so one model's refusal really is every
+/// model's refusal.
+function benchOf(id: string): string {
+  return id.startsWith("gemini") ? id : id.split("/")[0];
+}
+
+/// How long a refusal is worth believing.
+function quotaCooldown(msg: string): number {
+  // A day's budget does not come back in a minute and a half.
+  if (/per\s?day|PerDay|requests per day/i.test(msg)) return 6 * 60 * 60_000;
+  const m = msg.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  if (m) {
+    const secs = Math.ceil(parseFloat(m[1])) + 5;
+    return Math.min(10 * 60_000, Math.max(5_000, secs * 1000));
+  }
+  return QUOTA_COOLDOWN;
+}
+
 async function completeFrom(
   attempts: Attempt[],
   skip = new Set<string>(),
 ): Promise<{ text: string; model: string }> {
   const problems: string[] = [];
   const now = Date.now();
-  // Every model behind one vendor shares one key and one quota, so a 429 from
-  // gemini/2.5-flash tells you exactly as much about gemini/3.6-flash. Trying
-  // the rest anyway is what turned a spent quota into a 28-second wait.
+  // Benched this call, by whatever benchOf() says the unit of refusal is:
+  // one Gemini model, or one whole OpenRouter account.
   const spent = new Set<string>();
   for (const a of attempts) {
     if (skip.has(a.id)) continue;
     const vendor = a.id.split("/")[0];
-    if (spent.has(vendor)) continue;
-    if ((cooldownUntil.get(vendor) ?? 0) > now) {
-      problems.push(`cooling ${vendor}`);
+    const bench = benchOf(a.id);
+    if (spent.has(vendor) || spent.has(bench)) continue;
+    if ((cooldownUntil.get(vendor) ?? 0) > now ||
+        (cooldownUntil.get(bench) ?? 0) > now) {
+      problems.push(`cooling ${bench}`);
       continue;
     }
     try {
@@ -367,9 +436,18 @@ async function completeFrom(
     } catch (e) {
       const msg = String(e);
       problems.push(msg);
-      if (msg.includes("429") || msg.includes("quota") || msg.includes(NO_KEY_MSG)) {
+      if (msg.includes(NO_KEY_MSG)) {
+        // No key at all is a fact about the vendor, not about one model.
         spent.add(vendor);
         cooldownUntil.set(vendor, Date.now() + QUOTA_COOLDOWN);
+      } else if (msg.includes("404")) {
+        // A model id that has been renamed or withdrawn. One failure, not one
+        // per lookup for the rest of the day.
+        spent.add(bench);
+        cooldownUntil.set(bench, Date.now() + GONE_COOLDOWN);
+      } else if (msg.includes("429") || msg.includes("quota")) {
+        spent.add(bench);
+        cooldownUntil.set(bench, Date.now() + quotaCooldown(msg));
       } else if (FLAKY.has(vendor)) {
         spent.add(vendor);
         cooldownUntil.set(vendor, Date.now() + FLAKY_COOLDOWN);
@@ -880,8 +958,12 @@ async function fillGaps(entry: Entry): Promise<Entry> {
   if (isComplete(entry)) return entry;
   // Nothing to fill the gaps WITH. Walking the chain again to rediscover that
   // is six seconds spent on a foregone conclusion.
+  // benchOf, not the vendor: since a Gemini refusal benches one MODEL, a
+  // vendor-keyed lookup here would never match anything and this shortcut
+  // would never fire.
   if (chain("", 0, 0, false).every(
-        (a) => (cooldownUntil.get(a.id.split("/")[0]) ?? 0) > Date.now())) {
+        (a) => (cooldownUntil.get(benchOf(a.id)) ?? 0) > Date.now() ||
+               (cooldownUntil.get(a.id.split("/")[0]) ?? 0) > Date.now())) {
     return entry;
   }
   const en = clean(entry.en), kk = clean(entry.kk);

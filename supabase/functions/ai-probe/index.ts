@@ -168,6 +168,156 @@ function geminiLive(model: string, text: string): Promise<string> {
   });
 }
 
+/// Gemini's speech models hand back raw little-endian 16-bit PCM, and the
+/// transcriber wants a container. Forty-four bytes of header is the whole
+/// difference between "unsupported media" and a transcript.
+function wavFromPcm(pcm: Uint8Array, rate = 24000): Uint8Array {
+  const out = new Uint8Array(44 + pcm.length);
+  const dv = new DataView(out.buffer);
+  const ascii = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) out[at + i] = s.charCodeAt(i);
+  };
+  ascii(0, "RIFF");
+  dv.setUint32(4, 36 + pcm.length, true);
+  ascii(8, "WAVEfmt ");
+  dv.setUint32(16, 16, true);      // PCM header size
+  dv.setUint16(20, 1, true);       // format: PCM
+  dv.setUint16(22, 1, true);       // mono
+  dv.setUint32(24, rate, true);
+  dv.setUint32(28, rate * 2, true);
+  dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true);
+  ascii(36, "data");
+  dv.setUint32(40, pcm.length, true);
+  out.set(pcm, 44);
+  return out;
+}
+
+const b64 = (bytes: Uint8Array) => {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+};
+
+const unb64 = (s: string) =>
+  Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+/// Speaks a word, so the transcriber has something real to listen to. The
+/// alternative is testing speech recognition against silence, which proves
+/// only that the request shape parses.
+async function tts(
+  model: string, text: string,
+): Promise<{ data: string; mime: string }> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } },
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    },
+  );
+  const body = await res.text();
+  if (!res.ok) throw new Error(`tts ${res.status} ${body.slice(0, 200)}`);
+  const j = JSON.parse(body);
+  const part = j?.candidates?.[0]?.content?.parts?.[0];
+  const data = part?.inlineData?.data ?? part?.inline_data?.data ?? "";
+  const mime = part?.inlineData?.mimeType ?? part?.inline_data?.mime_type ?? "";
+  if (!data) throw new Error("tts: no audio");
+  return { data: data as string, mime: String(mime) };
+}
+
+/// "audio/L16;codec=pcm;rate=24000" -> 24000. Guessing this wrong makes every
+/// word play at the wrong speed, which no transcriber can recover from.
+function rateOf(mime: string): number {
+  const m = mime.match(/rate=(\d+)/);
+  return m ? parseInt(m[1], 10) : 24000;
+}
+
+/// One transcription over plain REST. If this works, the pronunciation
+/// checker does not need a WebSocket at all.
+async function transcribe(
+  model: string, wav: string, instruction: string,
+): Promise<string> {
+  const parts: unknown[] = instruction
+    ? [{ text: instruction }, { inlineData: { mimeType: "audio/wav", data: wav } }]
+    : [{ inlineData: { mimeType: "audio/wav", data: wav } }];
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: { temperature: 0, maxOutputTokens: 2048 },
+      }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    },
+  );
+  const body = await res.text();
+  if (!res.ok) throw new Error(`${res.status} ${body.slice(0, 260)}`);
+  const j = JSON.parse(body);
+  const t = j?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  if (!t.trim()) {
+    throw new Error(`empty finish=${j?.candidates?.[0]?.finishReason ?? "?"}`);
+  }
+  return t as string;
+}
+
+/// Speaks a word and asks each candidate model to hear it back. This is the
+/// whole feasibility question for automatic pronunciation scoring, asked in
+/// one request: can any model on this key turn speech into text over REST.
+async function roundTrip(word: string, models: string[]) {
+  const t0 = Date.now();
+  let wav = "";
+  let mime = "";
+  try {
+    const spoken = await tts(
+      "gemini-2.5-flash-preview-tts",
+      `Read this single English word aloud, clearly and nothing else: ${word}`,
+    );
+    mime = spoken.mime;
+    wav = b64(wavFromPcm(unb64(spoken.data), rateOf(spoken.mime)));
+  } catch (e) {
+    return [{ step: "tts", word, error: String(e).slice(0, 220), ms: Date.now() - t0 }];
+  }
+  const spoke = Date.now() - t0;
+  // Two shapes per model: with an instruction and with the audio alone. A
+  // dedicated transcriber can treat a text part as something to answer rather
+  // than something to obey, and come back empty.
+  const shapes: Array<[string, string]> = [
+    ["asked", "Transcribe the spoken English word. Return ONLY the word."],
+    ["bare", ""],
+  ];
+  const jobs: Array<Promise<unknown>> = [];
+  for (const m of models) {
+    for (const [tag, instruction] of shapes) {
+      jobs.push((async () => {
+        const t1 = Date.now();
+        try {
+          const heard = await transcribe(m, wav, instruction);
+          return { step: tag, model: m, word, mime,
+                   heard: heard.trim().slice(0, 60), ttsMs: spoke,
+                   ms: Date.now() - t1 };
+        } catch (e) {
+          return { step: tag, model: m, word, mime,
+                   error: String(e).slice(0, 200), ttsMs: spoke,
+                   ms: Date.now() - t1 };
+        }
+      })());
+    }
+  }
+  return await Promise.all(jobs);
+}
+
 type Provider = { id: string; run: (text: string) => Promise<string> };
 
 function providers(only?: string[], live?: string[]): Provider[] {
@@ -283,6 +433,36 @@ Deno.serve(async (req) => {
   if (!user) return json({ error: "auth required" }, 401);
 
   const body = await req.json().catch(() => ({}));
+
+  // {"hear":["model", ...], "terms":[...]} — speak each word, then ask each
+  // model to hear it back.
+  if (Array.isArray(body.hear) && body.hear.length) {
+    const models = body.hear
+      .filter((x: unknown) => typeof x === "string").slice(0, 5) as string[];
+    const words: string[] = Array.isArray(body.terms) && body.terms.length
+      ? body.terms.filter((x: unknown) => typeof x === "string").slice(0, 4)
+      : ["beacon"];
+    const rounds = await Promise.all(words.map((w) => roundTrip(w, models)));
+    return json({ results: rounds.flat() });
+  }
+
+  // {"speak":"library"} — hand back a real WAV, so the gateway's own listen
+  // task can be tested end to end without a microphone in the room.
+  if (typeof body.speak === "string" && body.speak.trim()) {
+    try {
+      const spoken = await tts(
+        "gemini-2.5-flash-preview-tts",
+        `Read this single English word aloud, clearly and nothing else: ${body.speak.trim()}`,
+      );
+      return json({
+        mime: "audio/wav",
+        source_mime: spoken.mime,
+        audio: b64(wavFromPcm(unb64(spoken.data), rateOf(spoken.mime))),
+      });
+    } catch (e) {
+      return json({ error: String(e).slice(0, 300) }, 200);
+    }
+  }
 
   if (body.list === true) {
     try {

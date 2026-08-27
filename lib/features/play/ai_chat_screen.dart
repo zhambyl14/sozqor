@@ -13,6 +13,7 @@
 // connection, which is when people actually practise.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
@@ -21,6 +22,7 @@ import '../../core/widgets/sq.dart';
 import '../../data/models/word.dart';
 import '../../data/supa.dart';
 import '../../providers.dart';
+import '../../services/listen.dart';
 import '../../services/sozqor_ai.dart';
 import '../../services/speech.dart';
 
@@ -57,16 +59,73 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   bool _busy = false;
   int _earned = 0;
 
+  /// Speaking, rather than typing, this turn.
+  ///
+  /// A conversation drill you have to type at is a writing drill. The same
+  /// request that marks the pronunciation screen will transcribe a sentence,
+  /// so the microphone puts the learner's own voice into the conversation and
+  /// the partner already answers out loud.
+  bool _holding = false;
+  bool _hearing = false;
+
+  /// False once the recorder has refused, after which the button is not
+  /// offered again: a device with no microphone should not keep being asked.
+  bool _micOk = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _greet());
   }
 
+  /// Press and hold to talk.
+  Future<void> _holdStart() async {
+    if (_busy || _hearing || !_micOk) return;
+    HapticFeedback.selectionClick();
+    setState(() => _holding = true);
+    final started = await Listen.instance.start();
+    if (!started && mounted) setState(() { _micOk = false; _holding = false; });
+  }
+
+  /// Let go and it becomes a message, exactly as if it had been typed —
+  /// including going through the same _ask(), so the reply, the saved words
+  /// and the тәжірибе all work the way they already did.
+  Future<void> _holdEnd({bool cancelled = false}) async {
+    if (!_holding) return;
+    setState(() => _holding = false);
+    if (cancelled) {
+      await Listen.instance.cancel();
+      return;
+    }
+    final audio = await Listen.instance.stop();
+    if (audio == null) {
+      if (mounted) sqSnack(context, tr('Тым қысқа — түймені ұстап тұрып айт'));
+      return;
+    }
+    setState(() => _hearing = true);
+    try {
+      final text = await SozQorAI.instance.dictate(audio: audio);
+      if (!mounted) return;
+      setState(() => _hearing = false);
+      if (text.isEmpty) {
+        sqSnack(context, tr('Ештеңе естілмеді — қайта айтып көр'));
+        return;
+      }
+      setState(() => _messages.add(_Msg(text, true)));
+      _scrollDown();
+      await _ask(mine: text);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hearing = false);
+      sqSnack(context, humanError(e), error: true);
+    }
+  }
+
   @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
+    Listen.instance.cancel();
     Speech.instance.stop();
     super.dispose();
   }
@@ -324,7 +383,9 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                           fontSize: 13.5, fontWeight: FontWeight.w600,
                           color: AppColors.text(d)),
                         decoration: InputDecoration(
-                          hintText: tr('Жауабыңды жаз…'),
+                          hintText: _holding
+                              ? tr('Тыңдап тұр…')
+                              : tr('Жауабыңды жаз…'),
                           filled: false,
                           isDense: true,
                           contentPadding:
@@ -338,13 +399,46 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                         ),
                       ),
                     ),
+                    // The microphone sits before the send button, because
+                    // speaking is the point of a conversation drill and
+                    // typing is the fallback — not the other way round.
+                    if (_micOk) ...[
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTapDown: (_) => _holdStart(),
+                        onTapUp: (_) => _holdEnd(),
+                        onTapCancel: () => _holdEnd(cancelled: true),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          width: 42, height: 42,
+                          decoration: BoxDecoration(
+                            color: _holding
+                                ? AppColors.red
+                                : AppColors.soft(AppColors.primary, d),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          alignment: Alignment.center,
+                          child: _hearing
+                              ? const SizedBox(
+                                  width: 17, height: 17,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.2))
+                              : Icon(PhosphorIconsFill.microphone,
+                                  size: 19,
+                                  color: _holding
+                                      ? Colors.white
+                                      : AppColors.onSoft(
+                                          AppColors.primary, d)),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     SqSquareButton(PhosphorIconsFill.paperPlaneRight,
                       size: 42,
                       fill: AppColors.primary,
                       lip: AppColors.primaryDeep,
                       iconColor: Colors.white,
-                      onTap: _busy ? null : _send),
+                      onTap: _busy || _hearing ? null : _send),
                   ],
                 ),
               ),

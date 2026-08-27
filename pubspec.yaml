@@ -29,6 +29,11 @@ dependencies:
   # Speech for listening games
   flutter_tts: ^4.2.0
 
+  # The microphone, for the pronunciation drill and for speaking to the chat
+  # partner. Used through startStream, so no temporary file and no
+  # path_provider: see lib/services/listen.dart.
+  record: ^6.2.1
+
   # Utils
   shared_preferences: ^2.3.3
   timezone: ^0.10.0

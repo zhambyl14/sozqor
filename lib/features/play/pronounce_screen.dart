@@ -7,11 +7,19 @@
 // screen is the missing half: hear the model, see the word broken into
 // syllables, hold the button and repeat it, then judge yourself.
 //
-// The self-judgement is deliberate and stated on screen. Automatic scoring
-// would need a speech-recognition engine and a microphone permission on every
-// platform; an honest three-way self-check ships today, feeds the same spaced
-// repetition as every other answer, and never lies to the learner about a
-// score it did not measure.
+// The self-judgement used to be the whole of it, and the header used to
+// explain why: automatic scoring would need a speech-recognition engine, and
+// an honest three-way self-check was better than a number nobody measured.
+//
+// It is measured now. The model already answering translations will listen to
+// a couple of seconds of audio over an ordinary HTTPS request and say what it
+// heard — probed on "beacon" and "library" it returned both, in about a
+// second. So holding the button records, and letting go marks it.
+//
+// The self-check has not been deleted, because a microphone can be refused, a
+// platform can lack one, and a request can fail. In every one of those cases
+// the screen falls back to the three buttons rather than to an error: the
+// drill is worth doing without a network, and it always was.
 
 import 'dart:math' as math;
 
@@ -24,7 +32,10 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/sq.dart';
 import '../../data/models/dict_entry.dart';
 import '../../data/models/word.dart';
+import '../../data/supa.dart';
 import '../../providers.dart';
+import '../../services/listen.dart';
+import '../../services/sozqor_ai.dart';
 import '../../services/speech.dart';
 
 const _vowels = 'aeiouy';
@@ -148,6 +159,17 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
   int _score = 0;
   int _rateCount = 0;
 
+  /// Whether this device will let us listen at all. Set false the first time
+  /// the recorder refuses — no permission, no microphone, an unsupported
+  /// platform — and from then on the screen is the self-marked drill it was.
+  bool _micOk = true;
+
+  /// A recording is on its way to the model.
+  bool _checking = false;
+
+  /// The verdict on this word, once there is one.
+  Heard? _heard;
+
   @override
   void initState() {
     super.initState();
@@ -158,7 +180,57 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
   void dispose() {
     _wave.dispose();
     Speech.instance.stop();
+    // The recorder holds the microphone until it is told otherwise, and a
+    // screen that has been popped must not keep it.
+    Listen.instance.cancel();
     super.dispose();
+  }
+
+  /// Press: start recording. A refusal here is not an error to show — it is
+  /// the answer to "can this device do it", and the screen quietly becomes
+  /// the self-marked one.
+  Future<void> _holdStart() async {
+    if (_checking) return;
+    HapticFeedback.selectionClick();
+    setState(() { _holding = true; _heard = null; });
+    if (!_micOk) return;
+    final started = await Listen.instance.start();
+    if (!started && mounted) setState(() => _micOk = false);
+  }
+
+  /// Release: send what was recorded and let the model mark it.
+  Future<void> _holdEnd({bool cancelled = false}) async {
+    if (!_holding) return;
+    setState(() => _holding = false);
+    if (!_micOk) return;
+    if (cancelled) {
+      await Listen.instance.cancel();
+      return;
+    }
+
+    final audio = await Listen.instance.stop();
+    // Too short to be a word. Saying so is friendlier than marking it wrong.
+    if (audio == null) {
+      if (mounted) sqSnack(context, tr('Тым қысқа — түймені ұстап тұрып айт'));
+      return;
+    }
+
+    final item = _current;
+    if (item == null) return;
+    setState(() => _checking = true);
+    try {
+      final heard = await SozQorAI.instance
+          .pronounce(audio: audio, target: _speakable(item.en));
+      if (!mounted) return;
+      setState(() { _checking = false; _heard = heard; });
+      HapticFeedback.mediumImpact();
+      await _rate(heard.score, auto: true);
+    } catch (e) {
+      if (!mounted) return;
+      // The drill survives a failed request: mark it yourself this once.
+      setState(() { _checking = false; _heard = null; });
+      sqSnack(context, humanError(e), error: true);
+    }
   }
 
   void _build() {
@@ -190,10 +262,10 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
 
   _Item? get _current => _index < _items.length ? _items[_index] : null;
 
-  Future<void> _rate(int stars) async {
+  Future<void> _rate(int stars, {bool auto = false}) async {
     final item = _current;
     if (item == null) return;
-    HapticFeedback.mediumImpact();
+    if (!auto) HapticFeedback.mediumImpact();
     setState(() {
       _rated = true;
       _score += stars;
@@ -216,7 +288,7 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
       setState(() => _finished = true);
       return;
     }
-    setState(() { _index++; _rated = false; });
+    setState(() { _index++; _rated = false; _heard = null; });
     Speech.instance.say(_speakable(_items[_index].en));
   }
 
@@ -227,6 +299,7 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
       _finished = false;
       _score = 0;
       _rateCount = 0;
+      _heard = null;
     });
     _build();
   }
@@ -537,12 +610,9 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
                 ),
               ] else ...[
                 GestureDetector(
-                  onTapDown: (_) {
-                    HapticFeedback.selectionClick();
-                    setState(() => _holding = true);
-                  },
-                  onTapUp: (_) => setState(() => _holding = false),
-                  onTapCancel: () => setState(() => _holding = false),
+                  onTapDown: (_) => _holdStart(),
+                  onTapUp: (_) => _holdEnd(),
+                  onTapCancel: () => _holdEnd(cancelled: true),
                   child: SizedBox(
                     width: 96, height: 96,
                     child: Stack(
@@ -575,44 +645,66 @@ class _PronounceScreenState extends ConsumerState<PronounceScreen>
                                 blurRadius: 26, offset: const Offset(0, 12)),
                             ],
                           ),
-                          child: const Icon(PhosphorIconsFill.microphone,
-                            size: 34, color: Colors.white),
+                          child: _checking
+                              ? const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.6, color: Colors.white))
+                              : const Icon(PhosphorIconsFill.microphone,
+                                  size: 34, color: Colors.white),
                         ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(_holding ? tr('Айта бер…') : tr('Басып тұрып қайтала'),
+                Text(
+                  _checking
+                      ? tr('Тыңдап жатыр…')
+                      : _holding
+                          ? tr('Айта бер…')
+                          : tr('Басып тұрып қайтала'),
                   style: TextStyle(
                     fontSize: 12.5, fontWeight: FontWeight.w700,
                     color: AppColors.text3(d))),
                 const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(child: _RateButton(
-                      label: tr('Қиын'), tint: AppColors.red,
-                      icon: PhosphorIconsFill.smileySad,
-                      onTap: () => _rate(1))),
-                    const SizedBox(width: 9),
-                    Expanded(child: _RateButton(
-                      label: tr('Шамалы'), tint: AppColors.amber,
-                      icon: PhosphorIconsFill.smileyMeh,
-                      onTap: () => _rate(2))),
-                    const SizedBox(width: 9),
-                    Expanded(child: _RateButton(
-                      label: tr('Оңай'), tint: AppColors.green,
-                      icon: PhosphorIconsFill.smiley,
-                      onTap: () => _rate(3))),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  tr('Автотексеру келесі нұсқада. Қазір өзіңді бағалайсың.'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11, height: 1.4, fontWeight: FontWeight.w600,
-                    color: AppColors.text4(d))),
+
+                // The verdict, when there is one.
+                if (_heard != null) _Verdict(heard: _heard!),
+
+                // The three buttons stay for the devices that cannot listen,
+                // and for the attempt whose request failed. When the model
+                // marked it, marking it again would only overwrite a measured
+                // score with a guess.
+                if (_heard == null && !_checking) ...[
+                  Row(
+                    children: [
+                      Expanded(child: _RateButton(
+                        label: tr('Қиын'), tint: AppColors.red,
+                        icon: PhosphorIconsFill.smileySad,
+                        onTap: () => _rate(1))),
+                      const SizedBox(width: 9),
+                      Expanded(child: _RateButton(
+                        label: tr('Шамалы'), tint: AppColors.amber,
+                        icon: PhosphorIconsFill.smileyMeh,
+                        onTap: () => _rate(2))),
+                      const SizedBox(width: 9),
+                      Expanded(child: _RateButton(
+                        label: tr('Оңай'), tint: AppColors.green,
+                        icon: PhosphorIconsFill.smiley,
+                        onTap: () => _rate(3))),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _micOk
+                        ? tr('Түймені ұстап тұрып айтсаң — өзі тексереді.')
+                        : tr('Микрофон қолжетімсіз — өзіңді бағала.'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11, height: 1.4, fontWeight: FontWeight.w600,
+                      color: AppColors.text4(d))),
+                ],
               ],
           ],
         ),
@@ -702,6 +794,85 @@ class _Wave extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// What the model heard, and the one thing to fix.
+///
+/// The heard word is shown even when it is right, because "it heard exactly
+/// what you meant" is the reassurance the self-marked version could never
+/// give — and when it is wrong, seeing the word it DID hear is the whole
+/// lesson.
+class _Verdict extends StatelessWidget {
+  final Heard heard;
+  const _Verdict({required this.heard});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = isDark(context);
+    final tint = switch (heard.score) {
+      3 => AppColors.green,
+      2 => AppColors.amber,
+      _ => AppColors.red,
+    };
+
+    return SqPanel(
+      radius: 18,
+      padding: const EdgeInsets.all(14),
+      fill: AppColors.soft(tint, d),
+      border: AppColors.line(tint, d),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(
+                heard.score >= 2
+                    ? PhosphorIconsFill.checkCircle
+                    : PhosphorIconsFill.warningCircle,
+                size: 20, color: AppColors.onSoft(tint, d)),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  heard.heard.isEmpty
+                      ? tr('Ештеңе естілмеді')
+                      : trp('Естілгені: {p1}', {'p1': heard.heard}),
+                  style: TextStyle(
+                    fontSize: 14, height: 1.3, fontWeight: FontWeight.w800,
+                    color: AppColors.text(d))),
+              ),
+              const SizedBox(width: 8),
+              // Three dots, filled to the score. A number out of three reads
+              // as a mark; three dots read as progress.
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < 3; i++) ...[
+                    Container(
+                      width: 8, height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: i < heard.score
+                            ? AppColors.onSoft(tint, d)
+                            : AppColors.onSoft(tint, d).withValues(alpha: 0.25)),
+                    ),
+                    if (i < 2) const SizedBox(width: 4),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          if (heard.tip.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(heard.tip,
+              style: TextStyle(
+                fontSize: 12, height: 1.45, fontWeight: FontWeight.w600,
+                color: AppColors.onSoft(tint, d))),
+          ],
+        ],
+      ),
     );
   }
 }

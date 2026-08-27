@@ -4,6 +4,9 @@
     <!-- Android 13+ asks before showing streak / league / battle reminders -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Held-button recording: the pronunciation drill and speaking to
+         the chat partner. Nothing records unless a button is held. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- The daily study reminder is rescheduled after a restart -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 

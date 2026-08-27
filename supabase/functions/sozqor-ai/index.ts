@@ -2,7 +2,7 @@
 // Keeps LLM API keys server-side and grows the shared dictionary
 // so repeated lookups never cost a request.
 //
-// Tasks: translate | enrich | suggest | chat | explain | health | raw
+// Tasks: translate | enrich | suggest | chat | explain | listen | health | raw
 //
 // ── Why the provider order is what it is ───────────────────
 //
@@ -167,6 +167,11 @@ const FREE_MODELS = [
 const LLM_TIMEOUT = 7_000;
 const FREE_TIMEOUT = 4_000;
 
+// Uploading a couple of seconds of audio and waiting for it to be heard is
+// slower than asking a question about a word, and the learner is holding a
+// button while it happens.
+const AUDIO_TIMEOUT = 15_000;
+
 // The whole of a translate, end to end. Past this the answer is whatever the
 // keyless services or the stored row can give.
 const TRANSLATE_DEADLINE = 9_000;
@@ -208,6 +213,10 @@ const MSG: Record<string, { kk: string; ru: string }> = {
   noTranslation: { kk: "Аударма табылмады", ru: "Перевод не найден" },
   noList: { kk: "AI тізім қайтармады", ru: "AI не вернул список" },
   unknownTask: { kk: "Белгісіз тапсырма", ru: "Неизвестная задача" },
+  tooLong: {
+    kk: "Жазба тым ұзақ — қысқарақ айт",
+    ru: "Запись слишком длинная — скажи короче",
+  },
 };
 
 type Lang = "kk" | "ru";
@@ -318,6 +327,54 @@ async function callGemini(
   }
   if (!res.ok) {
     throw new Error(`${res.status} gemini/${model} ${(await res.text().catch(() => "")).slice(0, 160)}`);
+  }
+  const json = await res.json();
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  if (!text.trim()) {
+    throw new Error(
+      `empty gemini/${model} finish=${json?.candidates?.[0]?.finishReason ?? "?"}`,
+    );
+  }
+  return text as string;
+}
+
+/// The same call with a recording attached.
+///
+/// Audio rides inline as base64 rather than through the Files API: a word or
+/// a sentence is a couple of seconds, which is far inside the inline limit,
+/// and the Files API would cost an upload round trip before the question.
+async function callGeminiAudio(
+  key: string,
+  model: string,
+  prompt: string,
+  audio: string,
+  mime: string,
+) {
+  if (!key) throw new Error(NO_KEY_MSG);
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: mime, data: audio } },
+          ],
+        }],
+        generationConfig: { temperature: 0, maxOutputTokens: GEMINI_MIN_TOKENS },
+      }),
+      signal: AbortSignal.timeout(AUDIO_TIMEOUT),
+    },
+  );
+  if (res.status === 429) {
+    throw new Error(
+      `429 gemini/${model} ${(await res.text().catch(() => "")).slice(0, 400)}`,
+    );
+  }
+  if (!res.ok) {
+    throw new Error(`${res.status} gemini/${model} ${(await res.text().catch(() => "")).slice(0, 200)}`);
   }
   const json = await res.json();
   const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
@@ -941,6 +998,71 @@ const loanwordPrompt = (term: string, candidate: string) =>
 ` +
   `Return ONLY {"real": true or false, "en": "the correct English meaning if it is not real"}.`;
 
+/// What the microphone is for.
+///
+/// The pronunciation drill has always been self-marked, and said so on
+/// screen, because scoring speech needed an engine nobody wanted to ship.
+/// It turns out the model already in the chain can do it over plain REST:
+/// probed on its own synthesised speech it heard "beacon" as "beacon" and
+/// "library" as "library", in about a second. `gemini-3.5-transcribe` — the
+/// dedicated one — answers nothing at all through this endpoint, so the
+/// ordinary Flash-Lite is what listens.
+///
+/// The judgement is deliberately not "did the strings match". A learner who
+/// says "beacon" with a Kazakh vowel has pronounced the word; a learner who
+/// says "bacon" has said a different one. Only the model can tell those
+/// apart, so it is asked to, and to say what to fix in one short phrase the
+/// learner's own language.
+const listenPrompt = (target: string, lang: Lang) =>
+  `A learner of English is practising pronunciation.
+` +
+  `The word they were asked to say: "${target}"
+` +
+  `Listen to the recording and answer ONLY with raw JSON:
+` +
+  `  heard   - what you actually hear, in English, as plain words
+` +
+  `  ok      - true if they said the target word (an accent is fine),
+` +
+  `            false if they said a different word or nothing
+` +
+  `  score   - 0 to 3: 0 nothing usable, 1 wrong word, 2 recognisable but
+` +
+  `            off, 3 clear and correct
+` +
+  `  tip     - at most 12 words of advice, written in ` +
+  `${LANG_NAME[lang]}, naming the sound to fix. Empty when score is 3.`;
+
+/// Free-form dictation, for talking to the chat partner instead of typing.
+const dictatePrompt = () =>
+  `Transcribe the English speech in this recording.
+` +
+  `Return ONLY raw JSON: {"heard":"the words, or an empty string"}.
+` +
+  `Do not translate, do not explain, do not add punctuation you did not hear.`;
+
+/// One question with a sound attached.
+///
+/// Sent to the models in the ordinary chain order, so listening shares the
+/// same per-model quota accounting as everything else — and the same spare
+/// keys.
+function audioChain(
+  prompt: string,
+  audio: string,
+  mime: string,
+): Attempt[] {
+  const out: Attempt[] = [];
+  for (const m of GEMINI_MODELS) {
+    GEMINI_KEYS.forEach((key, i) => {
+      out.push({
+        id: `gemini${i + 1}/${m}`,
+        run: () => callGeminiAudio(key, m, prompt, audio, mime),
+      });
+    });
+  }
+  return out;
+}
+
 const enrichPrompt = (en: string, kk: string) =>
   `For the English word "${en}" (Kazakh: "${kk}") return ONLY raw JSON with fields:\n` +
   `  definition_en - short English definition (max 15 words)\n` +
@@ -1391,6 +1513,54 @@ Deno.serve(async (req) => {
         return fail(note, 429);
       }
       return ok({ entries: saved, note: note || undefined });
+    }
+
+    // ── listen: what the learner just said ──
+    //
+    // Two shapes behind one task. With `target` it is the pronunciation
+    // drill: did they say THAT word, and what should they fix. Without one
+    // it is dictation, so the chat partner can be spoken to instead of typed
+    // at. Both are one Gemini call with a recording attached.
+    if (task === "listen") {
+      const audio = clean(body.audio);
+      if (!audio) return fail(say("empty", lang));
+      // Roughly 4 MB of base64. Anything longer is not a word or a sentence,
+      // and inline audio has a ceiling of its own.
+      if (audio.length > 5_500_000) return fail(say("tooLong", lang), 413);
+      const mime = clean(body.mime) || "audio/wav";
+      const target = clean(body.target);
+
+      let heardText = "";
+      try {
+        const r = await withDeadline(
+          completeFrom(audioChain(
+            target ? listenPrompt(target, lang) : dictatePrompt(),
+            audio, mime)),
+          AUDIO_TIMEOUT + 3_000,
+        );
+        if (r === null) throw new Error(`timeout ${AUDIO_TIMEOUT}ms`);
+        heardText = r.text;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes(NO_KEY_MSG)) return fail(say("noKey", lang), 503);
+        if (msg.includes(RATE_MSG)) return fail(say("rate", lang), 429);
+        return fail(msg, 429);
+      }
+
+      const j = parseJson(heardText) as Entry;
+      const heard = clean(j?.heard);
+      if (!target) return ok({ heard });
+
+      // The score is clamped here rather than trusted: a model that answers
+      // `7` should not become seven stars.
+      const raw = Number(j?.score);
+      const score = Number.isFinite(raw) ? Math.min(3, Math.max(0, Math.round(raw))) : 0;
+      return ok({
+        heard,
+        ok: j?.ok === true,
+        score,
+        tip: clean(j?.tip),
+      });
     }
 
     // ── chat: one turn of a role-play conversation ──

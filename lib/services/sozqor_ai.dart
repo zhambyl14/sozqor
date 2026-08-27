@@ -21,6 +21,7 @@ import '../core/config/app_config.dart';
 import '../data/models/dict_entry.dart';
 import '../data/repos/dictionary_repo.dart';
 import '../data/supa.dart';
+import 'listen.dart';
 import 'local_dictionary.dart';
 import '../core/i18n/l10n.dart';
 
@@ -319,6 +320,47 @@ class SozQorAI {
         {'task': 'explain', 'en': en, 'study_lang': studyLang});
     stats.llmHits++;
     return (data['text'] ?? '').toString().trim();
+  }
+
+  // ── Listening ────────────────────────────────────────────
+
+  /// Marks one attempt at saying [target].
+  ///
+  /// This is what replaced the three-way self-check on the pronunciation
+  /// screen. The judgement is deliberately not a string comparison: a learner
+  /// who says "beacon" with a Kazakh vowel HAS said the word, and one who
+  /// says "bacon" has said a different one, and only something that can hear
+  /// both tells them apart. The advice comes back in the learner's own
+  /// language because it names a sound, and naming a sound in the language
+  /// somebody is still learning helps nobody.
+  Future<Heard> pronounce({
+    required String audio,
+    required String target,
+    String mime = 'audio/wav',
+  }) async {
+    final data = await _invoke({
+      'task': 'listen',
+      'audio': audio,
+      'mime': mime,
+      'target': target,
+    });
+    stats.llmHits++;
+    return Heard.fromMap(data);
+  }
+
+  /// Plain dictation: what did they say? Used by the chat partner, so a turn
+  /// can be spoken instead of typed.
+  Future<String> dictate({
+    required String audio,
+    String mime = 'audio/wav',
+  }) async {
+    final data = await _invoke({
+      'task': 'listen',
+      'audio': audio,
+      'mime': mime,
+    });
+    stats.llmHits++;
+    return (data['heard'] ?? '').toString().trim();
   }
 
   // ── Conversation practice ────────────────────────────────
